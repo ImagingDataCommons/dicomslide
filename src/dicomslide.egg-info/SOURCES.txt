@@ -1,0 +1,12 @@
+setup.py
+src/dicomslide/__init__.py
+src/dicomslide/image.py
+src/dicomslide/matrix.py
+src/dicomslide/pyramid.py
+src/dicomslide/tile.py
+src/dicomslide/utils.py
+src/dicomslide.egg-info/PKG-INFO
+src/dicomslide.egg-info/SOURCES.txt
+src/dicomslide.egg-info/dependency_links.txt
+src/dicomslide.egg-info/requires.txt
+src/dicomslide.egg-info/top_level.txt
