@@ -142,12 +142,15 @@ class TiledImage:
 
         """
         try:
-            return self._optical_path_identifiers.index(optical_path_identifier)
+            index = self._optical_path_identifiers.index(
+                optical_path_identifier
+            )
         except ValueError:
             raise ValueError(
                 f'Image "{self._metadata.SOPInstanceUID}" does not have an '
                 f'optical path with identifier "{optical_path_identifier}".'
             )
+        return index + 1
 
     def get_optical_path_identifier(self, optical_path_index: int) -> str:
         """Get identifier of an optical path.
@@ -210,7 +213,7 @@ class TiledImage:
             self._frame_positions = compute_frame_positions(self._metadata)
         slide_positions = self._frame_positions[1]
         focal_plane_indices = self._frame_positions[3]
-        index = slide_positions == focal_plane_offset
+        index = slide_positions[:, 2] == focal_plane_offset
         if np.sum(index) == 0:
             raise ValueError(
                 f'Image "{self._metadata.SOPInstanceUID}" does not have a '
@@ -324,7 +327,8 @@ class TiledImage:
         ):
             raise ValueError(
                 'Argument "optical_path_index" must be in range '
-                f'[1, {self.num_optical_paths}].'
+                f'[1, {self.num_optical_paths}], but it is '
+                f'{optical_path_index}'
             )
         if (
             focal_plane_index < 1 or
@@ -332,7 +336,8 @@ class TiledImage:
         ):
             raise ValueError(
                 'Argument "focal_plane_index" must be in range '
-                f'[1, {self.num_focal_planes}].'
+                f'[1, {self.num_focal_planes}], but it is '
+                f'{focal_plane_index}'
             )
 
         key = (optical_path_index, focal_plane_index)

@@ -170,14 +170,14 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
             else:
                 self.PhotometricInterpretation = "RGB"
             self.BitsAllocated = 8
-            self.PixelPaddingValue = 255
+            pixel_value = 255
             self.PlanarConfiguration = 0
             image_shape = [rows, columns, samples_per_pixel]
             image_dtype = np.uint8
         elif samples_per_pixel == 1:
             self.PhotometricInterpretation = "MONOCHROME2"
             self.BitsAllocated = 16
-            self.PixelPaddingValue = 0
+            pixel_value = 0
             self.RescaleIntercept = 0
             self.RescaleSlope = 1
             self.PresentationLUTShape = "IDENTITY"
@@ -426,10 +426,8 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
                 pffg_item.PlanePositionSlideSequence = [pp_item]
                 self.PerFrameFunctionalGroupsSequence.append(pffg_item)
 
-            tile = self.PixelPaddingValue * np.ones(
-                image_shape,
-                dtype=image_dtype
-            )
+            tile = np.ones(image_shape, dtype=image_dtype)
+            tile *= image_dtype(pixel_value)
             if transfer_syntax_uid == JPEGBaseline8Bit:
                 self.LossyImageCompression = "01"
                 self.LossyImageCompressionMethod = "ISO_10918_1"
