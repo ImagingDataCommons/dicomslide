@@ -15,7 +15,7 @@ from pydicom.dataset import Dataset
 from pydicom.uid import UID
 from dicomslide.tile import (
     assemble_total_pixel_matrix,
-    compute_tile_positions,
+    compute_frame_positions,
     is_tiled_image
 )
 
@@ -75,15 +75,19 @@ def _determine_transfer_syntax(frame: bytes) -> UID:
 
 class TotalPixelMatrix:
 
-    """A Total Pixel Matrix.
+    """Total Pixel Matrix.
 
     The class exposes a NumPy-like interface to index into a total pixel matrix
     of a tiled image, where each tile is encoded as a separate frame.
     Instances of the class walk and quack like NumPy arrays and can be indexed
     accordingly. When the caller indexes instances of the class, the
     corresponding image frames are dynamically retrieved from a DICOM store and
-    decoded and the individual tiles are stitched together to form the
-    requested image region.
+    decoded.
+
+    The caller can index instances of the class either using tile indices into
+    the flattened list of tiles in the total pixel matrix to get individual
+    tiles or pixel indices into the total pixel matrix to get a continous
+    region spanning one or more tiles.
 
     Examples
     --------
@@ -91,7 +95,13 @@ class TotalPixelMatrix:
     >>> print(pixel_array.dtype)
     >>> print(pixel_array.ndim)
     >>> print(pixel_array.shape)
+    >>> print(pixel_array.size)
     >>> print(pixel_array[:256, 256:512, :])  # numpy.ndarray
+    >>> print(len(pixel_array))
+    >>> print(pixel_array[0])  # numpy.ndarray
+    >>> print(pixel_array[pixel_array.get_tile_index(2, 4)])  # numpy.ndarray
+    >>> print(pixel_array[[0, 1, 2, 5, 6, 7]])  # numpy.ndarray
+    >>> print(pixel_array[2:6])  # numpy.ndarray
 
     Warning
     -------
@@ -138,23 +148,6 @@ class TotalPixelMatrix:
         if not is_tiled_image(image_metadata):
             raise ValueError('Image is not tiled.')
 
-        num_optical_paths = len(self._metadata.OpticalPathSequence)
-        if optical_path_index < 1 or optical_path_index > num_optical_paths:
-            raise ValueError(
-                'Argument "optical_path_index" must be in range '
-                f'[1, {self.num_optical_paths}].'
-            )
-        num_focal_planes = getattr(
-            self._metadata,
-            'TotalPixelMatrixFocalPlanes',
-            1
-        )
-        if focal_plane_index < 1 or focal_plane_index > num_focal_planes:
-            raise ValueError(
-                'Argument "focal_plane_index" must be in range '
-                f'[1, {self.num_focal_planes}].'
-            )
-
         self._n = int(image_metadata.NumberOfFrames)
         self._rows = int(image_metadata.Rows)
         self._cols = int(image_metadata.Columns)
@@ -163,18 +156,38 @@ class TotalPixelMatrix:
             slide_offsets,
             optical_path_indices,
             focal_plane_indices,
-        ) = compute_tile_positions(image_metadata)
-        self._tile_positions = matrix_positions[
-            np.logical_and(
-                optical_path_indices == optical_path_index,
-                focal_plane_indices == focal_plane_index
-            ),
-            :
-        ]
+        ) = compute_frame_positions(image_metadata)
+
+        num_optical_paths = len(np.unique(optical_path_indices))
+        if optical_path_index < 1 or optical_path_index > num_optical_paths:
+            raise ValueError(
+                'Argument "optical_path_index" must be in range '
+                f'[1, {num_optical_paths}].'
+            )
+        num_focal_planes = len(np.unique(focal_plane_indices))
+        if focal_plane_index < 1 or focal_plane_index > num_focal_planes:
+            raise ValueError(
+                'Argument "focal_plane_index" must be in range '
+                f'[1, {num_focal_planes}].'
+            )
+
+        frame_selection_index = np.logical_and(
+            optical_path_indices == optical_path_index,
+            focal_plane_indices == focal_plane_index
+        )
+        self._tile_positions = matrix_positions[frame_selection_index, :]
         self._tile_grid_indices = np.column_stack([
             np.floor((self._tile_positions[:, 1] - 1) / self._rows),
             np.floor((self._tile_positions[:, 0] - 1) / self._cols),
         ]).astype(int)
+        tile_sort_index = np.lexsort([
+            self._tile_grid_indices[:, 1],
+            self._tile_grid_indices[:, 0]
+        ])
+        frame_indices = np.arange(0, int(self._metadata.NumberOfFrames))
+        self._frame_indices = frame_indices[frame_selection_index]
+        self._sorted_frame_indices = self._frame_indices[tile_sort_index]
+        self._current_index = 0
 
         self._cache = collections.OrderedDict()
         if max_frame_cache_size < 0:
@@ -190,7 +203,8 @@ class TotalPixelMatrix:
                 self._transform_fn = color_manager.transform_frame
             else:
                 logger.warning(
-                    'color image does not contain an ICC profile - '
+                    f'color image "{self._metadata.SOPInstanceUID}" does not '
+                    'contain an ICC profile - '
                     'pixel values will not be color corrected'
                 )
                 self._transform_fn = lambda x: x
@@ -304,8 +318,13 @@ class TotalPixelMatrix:
         return np.dtype(f'uint{self._metadata.BitsAllocated}')
 
     @property
+    def size(self) -> int:
+        """int: Size (rows x columns x samples)"""
+        return int(np.product(self.shape))
+
+    @property
     def shape(self) -> Tuple[int, int, int]:
-        """Tuple[int, int, int]: Image Rows, Columns, and Samples per Pixel"""
+        """Tuple[int, int, int]: Rows, Columns, and Samples per Pixel"""
         return (
             self._metadata.TotalPixelMatrixRows,
             self._metadata.TotalPixelMatrixColumns,
@@ -317,37 +336,82 @@ class TotalPixelMatrix:
         """int: Number of dimensions"""
         return len(self.shape)
 
-    def _get_frame_index(self, tile_grid_index: Tuple[int, int]) -> int:
-        """Get index of a frame.
+    def __len__(self) -> int:
+        """Determine the number of tiles.
+
+        Returns
+        -------
+        int
+            Number of tiles
+
+        """
+        return len(self._sorted_frame_indices)
+
+    def __iter__(self):
+        """Iterate over tiles."""
+        self._current_index = 0
+        return self
+
+    def __next__(self) -> np.ndarray:
+        """Serve the next tile.
+
+        Returns
+        -------
+        numpy.ndarray
+            3D tile array (rows x columns x samples)
+
+        """
+        if self._current_index >= len(self):
+            raise StopIteration
+        index = int(self._current_index)
+        self._current_index += 1
+        return self[index]
+
+    def get_tile_index(self, position: Tuple[int, int]) -> int:
+        """Get index of a tile.
 
         Parameters
         ----------
-        tile_grid_position: Tuple[int, int]
+        position: Tuple[int, int]
             Zero-based (row, column) index of a tile in the tile grid
 
         Returns
         -------
         int
-            Zero-based index of the frame in the pixel data
+            Zero-based index of the tile in the flattened total pixel matrix
 
         """
         matches = np.logical_and(
-            self._tile_grid_indices[:, 0] == tile_grid_index[0],
-            self._tile_grid_indices[:, 1] == tile_grid_index[1]
+            self._tile_grid_indices[:, 0] == position[0],
+            self._tile_grid_indices[:, 1] == position[1]
         )
+        if matches.shape[0] == 0:
+            raise IndexError(f'Could not find a tile at position {position}.')
         return int(np.where(matches)[0][0])
 
-    def __getitem__(
+    def _read_region(
         self,
-        key: Tuple[Union[slice, int], Union[slice, int], Union[slice, int]]
+        key: Tuple[Union[slice, int], Union[slice, int], Union[slice, int]],
     ) -> np.ndarray:
+        """Read a continous region of pixels from one or more tiles.
+
+        Retrieves one or more frames, decodes them, and stitches them together
+        to form the requested region.
+
+        Parameters
+        ----------
+        key: Tuple[Union[slice, int], Union[slice, int], Union[slice, int]]
+            Zero-based (row, column, sample) indices into the total pixel
+            matrix
+
+        Returns
+        -------
+        numpy.ndarray
+            Region of pixels spanning one or more tiles
+
+        """
         if not isinstance(key, tuple) or len(key) != 3:
-            raise ValueError(
-                'Slice Index must be three-dimensional to specify the extent '
-                'of the image region along the column direction '
-                '(top to bottom), the row direction (left to right), and '
-                'the channel direction.'
-            )
+            raise ValueError('Encountered unexpected key.')
 
         # Rows
         if isinstance(key[0], int):
@@ -369,9 +433,7 @@ class TotalPixelMatrix:
                     self._metadata.TotalPixelMatrixRows
                 )
         else:
-            raise TypeError(
-                'Item #0 of argument "key" must be an integer or a slice.'
-            )
+            raise TypeError('Row index must be an integer or a slice.')
         row_start_tile_fraction = row_start / self._rows
         row_start_tile_index = int(np.floor(row_start_tile_fraction))
         row_stop_tile_fraction = row_stop / self._rows
@@ -410,9 +472,7 @@ class TotalPixelMatrix:
                     self._metadata.TotalPixelMatrixColumns
                 )
         else:
-            raise TypeError(
-                'Item #1 of argument "key" must be an integer or a slice.'
-            )
+            raise TypeError('Column index must be an integer or a slice.')
         col_start_tile_fraction = col_start / self._cols
         col_start_tile_index = int(np.floor(col_start_tile_fraction))
         col_stop_tile_fraction = col_stop / self._cols
@@ -451,13 +511,12 @@ class TotalPixelMatrix:
                     self._metadata.SamplesPerPixel
                 )
         else:
-            raise TypeError(
-                'Item #2 of argument "key" must be an integer or a slice.'
-            )
+            raise TypeError('Sample index must be an integer or a slice.')
 
         frame_position_mapping = {}
         for (r, c) in itertools.product(row_tile_range, col_tile_range):
-            frame_index = self._get_frame_index((r, c))
+            tile_index = self.get_tile_index((r, c))
+            frame_index = self._frame_indices[tile_index]
             # (Column, Row) position of the frame in the region pixel matrix.
             # The top left frame is located at (1, 1).
             # These tile positions will subsequently be passed to the
@@ -466,11 +525,11 @@ class TotalPixelMatrix:
             # Column/Row Position In Total Image Pixel Matrix attributes.
             frame_position_mapping[frame_index] = (
                 (
-                    self._tile_positions[frame_index, 0]
+                    self._tile_positions[tile_index, 0]
                     - (col_start_tile_index * self._cols)
                 ),
                 (
-                    self._tile_positions[frame_index, 1]
+                    self._tile_positions[tile_index, 1]
                     - (row_start_tile_index * self._rows)
                 ),
             )
@@ -539,3 +598,81 @@ class TotalPixelMatrix:
             shape.append(max([0, sample_diff]))
 
             return np.zeros(shape, dtype=self.dtype)
+
+    def _read_tiles(
+        self,
+        key: Union[int, Sequence[int], slice]
+    ) -> np.ndarray:
+        """Read individual tiles.
+
+        Retrieves one or more frames and decodes them.
+
+        Parameters
+        ----------
+        key: Union[int, Sequence[int], slice]
+            Zero-based tile indices into the flattened list of tiles in the
+            total pixel matrix
+
+        Returns
+        -------
+        numpy.ndarray
+            A single 3D array or a sequence of 3D arrays, where each array
+            represents a tile (rows x columns x samples)
+
+        """
+        indices = []
+        if isinstance(key, int):
+            indices.append(key)
+        elif isinstance(key, Sequence):
+            if isinstance(key[0], int):
+                indices.extend([k for k in key])
+            else:
+                raise TypeError('Wrong tile index.')
+        elif isinstance(key, slice):
+            if isinstance(key[0], int):
+                indices.extend(list(range(key[0].start, key[1].stop)))
+            else:
+                raise TypeError('Wrong tile index.')
+        else:
+            raise TypeError('Wrong tile index.')
+
+        frame_indices = self._sorted_frame_indices[indices]
+        tiles = self._retrieve_and_decode_frames(frame_indices)
+        if len(indices) > 1:
+            return np.stack([tiles[i] for i in indices])
+        elif len(indices) == 1:
+            return tiles[indices[0]]
+        else:
+            raise IndexError(f'Could not find tiles: {indices}')
+
+    def __getitem__(
+        self,
+        key: Union[
+            Tuple[Union[slice, int], Union[slice, int], Union[slice, int]],
+            int,
+            Sequence[int],
+            slice
+        ]
+    ) -> np.ndarray:
+        error_message = (
+            'Key must have type Tuple[Union[int, slice], ...], '
+            'int, Sequence[int], or slice.'
+        )
+        if isinstance(key, tuple):
+            if not isinstance(key[0], (int, slice)):
+                raise TypeError(error_message)
+            if len(key) != 3:
+                raise ValueError(
+                    'Index must be a three-dimensional to specify the '
+                    'extent of the image region along the column direction '
+                    '(top to bottom), the row direction (left to right), and '
+                    'the sample direction (R, G, B in case of a color image).'
+                )
+            return self._read_region(key)
+        else:
+            if not isinstance(key, (int, Sequence, slice)):
+                raise TypeError(error_message)
+            if isinstance(key, Sequence):
+                if not isinstance(key[0], int):
+                    raise TypeError(error_message)
+            return self._read_tiles(key)

@@ -1,91 +1,132 @@
-from typing import Optional, Sequence, Tuple
+from io import BytesIO
 
-import highdicom as hd
-import numpy as np
 from pydicom.dataset import Dataset
 
+from dicomslide.enum import ImageFlavors
 
-def get_frame_contours(
-    image: Dataset, frame_numbers: Optional[Sequence[int]] = None
-) -> Tuple[hd.sr.GraphicTypeValues3D, Sequence[np.ndarray], hd.UID]:
-    """Get contours of image frames in the slide coordinate system.
+
+def is_image(dataset: Dataset) -> bool:
+    """Determine whether a dataset is an image.
 
     Parameters
     ----------
-    image: pydicom.dataset.Dataset
-        Metadata of a DICOM VL Whole Slide Microscopy Image
-    frame_numbers: Union[Sequence[int], None], optional
-        One-based index number of frames for which contours should be obtained
+    dataset: pydicom.dataset.Dataset
+        Dataset
 
     Returns
     -------
-    graphic_type: highdicom.sr.GraphicTypeValues3D
-        Graphic type
-    graphic_data: Sequence[numpy.ndarray]
-        Graphic data (3D spatial coordinates in slide coordinate system)
-    frame_of_reference_uid: highdicom.UID
-        Unique identifier of frame of reference (slide coordinate system)
+    bool
+        Whether dataset is an image
 
     """
-    image_orientation = image.ImageOrientationSlide
-    image_origin = image.TotalPixelMatrixOriginSequence[0]
-    image_position = (
-        image_origin.XOffsetInSlideCoordinateSystem,
-        image_origin.YOffsetInSlideCoordinateSystem,
-        0.0,  # TODO
-    )
-    pixel_spacing = (
-        image.SharedFunctionalGroupsSequence[0]
-        .PixelMeasuresSequence[0]
-        .PixelSpacing
-    )
-    transformer = hd.spatial.ImageToReferenceTransformer(
-        image_orientation=image_orientation,
-        image_position=image_position,
-        pixel_spacing=pixel_spacing,
-    )
+    return all([
+        hasattr(dataset, 'BitsAllocated'),
+        hasattr(dataset, 'Columns'),
+        hasattr(dataset, 'Rows'),
+        hasattr(dataset, 'PhotometricInterpretation'),
+    ])
 
-    num_focal_planes = getattr(image, "NumberOfFocalPlanes", 1)
-    if num_focal_planes > 1:
-        raise ValueError(
-            "Images with multiple focal planes are not supported."
+
+def is_tiled_image(dataset: Dataset) -> bool:
+    """Determine whether a dataset is a tiled image.
+
+    Parameters
+    ----------
+    dataset: pydicom.dataset.Dataset
+        Dataset
+
+    Returns
+    -------
+    bool
+        Whether dataset is a tiled image
+
+    """
+    if is_image(dataset):
+        return all([
+            hasattr(dataset, 'TotalPixelMatrixColumns'),
+            hasattr(dataset, 'TotalPixelMatrixRows'),
+        ])
+    return False
+
+
+def is_volume_image(dataset: Dataset) -> bool:
+    """Determine whether a dataset is a VOLUME or THUMBNAIL image.
+
+    Parameters
+    ----------
+    dataset: pydicom.dataset.Dataset
+        Dataset
+
+    Returns
+    -------
+    bool
+        Whether dataset is a VOLUME or THUMBNAIL image
+
+    """
+    if is_image(dataset):
+        return dataset.ImageType[2] in (
+            ImageFlavors.VOLUME.value,
+            ImageFlavors.THUMBNAIL.value,
         )
+    return False
 
-    if frame_numbers is None:
-        frame_numbers = list(range(1, int(image.NumberOfFrames) + 1))
 
-    if "PerFrameFunctionalGroupsSequence" in image:
-        plane_positions = [
-            item.PlanePositionSequence
-            for item in image.PerFrameFunctionalGroupsSequence
-        ]
-    else:
-        plane_positions = hd.utils.compute_plane_position_slide_per_frame(
-            image
-        )
+def is_label_image(dataset: Dataset) -> bool:
+    """Determine whether a dataset is a LABEL image.
 
-    rows = image.Rows
-    cols = image.Columns
-    contours = []
-    for n in frame_numbers:
-        frame_index = n - 1
-        frame_position = plane_positions[frame_index][0]
-        r = frame_position.RowPositionInTotalImagePixelMatrix
-        c = frame_position.ColumnPositionInTotalImagePixelMatrix
+    Parameters
+    ----------
+    dataset: pydicom.dataset.Dataset
+        Dataset
 
-        frame_pixel_coordinates = np.array(
-            [
-                [c, r],
-                [c + cols, r],
-                [c + cols, r + rows],
-                [c, r + rows],
-                [c, r],
-            ]
-        )
-        contours.append(transformer(frame_pixel_coordinates))
+    Returns
+    -------
+    bool
+        Whether dataset is a LABEL image
 
-    return (
-        hd.sr.GraphicTypeValues3D.POLYGON,
-        contours,
-        image.FrameOfReferenceUID,
-    )
+    """
+    if is_image(dataset):
+        return dataset.ImageType[2] == ImageFlavors.LABEL.value
+    return False
+
+
+def is_overview_image(dataset: Dataset) -> bool:
+    """Determine whether a dataset is an OVERVIEW image.
+
+    Parameters
+    ----------
+    dataset: pydicom.dataset.Dataset
+        Dataset
+
+    Returns
+    -------
+    bool
+        Whether dataset is an OVERVIEW image
+
+    """
+    if is_image(dataset):
+        return dataset.ImageType[2] == ImageFlavors.OVERVIEW.value
+    return False
+
+
+def encode_dataset(dataset: Dataset) -> bytes:
+    """Encode DICOM dataset.
+
+    Parameters
+    ----------
+    dataset: pydicom.dataset.Dataset
+        Dataset
+
+    Returns
+    -------
+    bytes
+        Binary encoded dataset
+
+    """
+    clone = Dataset(dataset)
+    clone.is_little_endian = True
+    clone.is_implicit_VR = False
+    with BytesIO() as fp:
+        clone.save_as(fp)
+        encoded_value = fp.getvalue()
+    return encoded_value

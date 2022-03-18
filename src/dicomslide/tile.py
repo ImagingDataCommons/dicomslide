@@ -1,51 +1,10 @@
-from typing import Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import highdicom as hd
 import numpy as np
 from pydicom.dataset import Dataset
 
-
-def is_image(dataset: Dataset) -> bool:
-    """Determine whether a dataset is an image.
-
-    Parameters
-    ----------
-    dataset: pydicom.dataset.Dataset
-        Dataset
-
-    Returns
-    -------
-    bool
-        Whether dataset is an image
-
-    """
-    return all([
-        hasattr(dataset, 'BitsAllocated'),
-        hasattr(dataset, 'Columns'),
-        hasattr(dataset, 'Rows'),
-        hasattr(dataset, 'PhotometricInterpretation'),
-    ])
-
-
-def is_tiled_image(dataset: Dataset) -> bool:
-    """Determine whether a dataset is a tiled image.
-
-    Parameters
-    ----------
-    dataset: pydicom.dataset.Dataset
-        Dataset
-
-    Returns
-    -------
-    bool
-        Whether dataset is a tiled image
-
-    """
-    return all([
-        is_image(dataset),
-        hasattr(dataset, 'TotalPixelMatrixColumns'),
-        hasattr(dataset, 'TotalPixelMatrixRows'),
-    ])
+from dicomslide.utils import is_tiled_image
 
 
 def disassemble_total_pixel_matrix(
@@ -159,10 +118,10 @@ def assemble_total_pixel_matrix(
     return total_pixel_matrix
 
 
-def compute_tile_positions(
+def compute_frame_positions(
     image: Dataset
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Compute the offset of tiles from the origin of the total pixel matrix.
+    """Compute the positions of frames.
 
     Parameters
     ----------
@@ -173,15 +132,15 @@ def compute_tile_positions(
     -------
     total_pixel_matrix_positions: numpy.ndarray
         One-based (column, row) offset of the center of the top lefthand corner
-        pixel of each tile (frame) from the origin of the total pixel matrix in
+        pixel of each frame from the origin of the total pixel matrix in
         pixel unit.  Values are unsigned integers in the range
         [1, Total Pixel Matrix Columns] and [1, Total Pixel Matrix Rows].
         The position of the top lefthand corner tile is (1, 1).
     slide_positions: numpy.ndarray
         Zero-based (x, y, z) offset of the center of the top lefthand corner
-        pixel of each tile (frame) from the origin of the slide coordinate
-        system (frame of reference) in millimeter unit. Values are
-        floating-point numbers in the range [-inf, inf].
+        pixel of each frame from the origin of the slide coordinate system
+        (frame of reference) in millimeter unit. Values are floating-point
+        numbers in the range [-inf, inf].
     optical_path_indices: numpy.ndarray
         One-based index for each frame into optical paths along the direction
         defined by successive items of the Optical Path Sequence attribute.
@@ -269,37 +228,11 @@ def compute_tile_positions(
     )
 
 
-def compute_tile_grid_index(image: Dataset) -> np.ndarray:
-    """Compute the index of each tile within the tile grid.
-
-    Parameters
-    ----------
-    image : pydicom.Dataset
-        Metadata of a tiled image
-
-    Returns
-    -------
-    numpy.ndarray
-        Zero-based (row, column) index of each tile in the tile grid in
-        tile unit
-
-    """
-    if not is_tiled_image(image):
-        raise ValueError('Argument "image" is not a a tiled image.')
-
-    tile_positions = compute_tile_positions(image)[0]
-    columns = image.Columns
-    rows = image.Rows
-    return np.column_stack([
-        np.floor((tile_positions[:, 1] - 1) / rows).astype(int),
-        np.floor((tile_positions[:, 0] - 1) / columns).astype(int),
-    ])
-
-
-def compute_tile_contours(
-    image: Dataset
-) -> Tuple[hd.sr.GraphicTypeValues3D, Sequence[np.ndarray], hd.UID]:
-    """Compute contours of image tiles in the slide coordinate system.
+def get_frame_contours(
+    image: Dataset,
+    frame_numbers: Optional[Sequence[int]] = None
+) -> List[np.ndarray]:
+    """Get contours image frames in the slide coordinate system.
 
     Parameters
     ----------
@@ -310,23 +243,48 @@ def compute_tile_contours(
 
     Returns
     -------
-    graphic_type: highdicom.sr.GraphicTypeValues3D
-        Graphic type (``highdicom.sr.GraphicTypeValues3D.POLYGON``)
-    graphic_data: Sequence[numpy.ndarray]
-        Graphic data (3D spatial coordinates in slide coordinate system)
-    frame_of_reference_uid: highdicom.UID
-        Unique identifier of frame of reference (slide coordinate system)
+    List[numpy.ndarray]
+        3D spatial coordinates of POLYGON that defines the bounding box of each
+        frame in slide coordinate system (frame of reference)
 
     """
     if not is_tiled_image(image):
         raise ValueError('Argument "image" is not a a tiled image.')
 
+    num_focal_planes = getattr(image, "TotalPixelMatrixFocalPlanes", 1)
+    if num_focal_planes > 1:
+        raise ValueError(
+            "Images with multiple focal planes are not supported."
+        )
+
+    if frame_numbers is None:
+        frame_numbers = list(range(1, int(image.NumberOfFrames) + 1))
+
+    if "PerFrameFunctionalGroupsSequence" in image:
+        plane_positions = [
+            item.PlanePositionSequence
+            for item in image.PerFrameFunctionalGroupsSequence
+        ]
+        # There appears to be no other way to obtain this information.
+        z_offset = np.min([
+            float(seq[0].ZOffsetInSlideCoordinateSystem)
+            for seq in plane_positions
+        ])
+    else:
+        plane_positions = hd.utils.compute_plane_position_slide_per_frame(
+            image
+        )
+        # TODO: In case of Dimension Organization Type TILED_FULL, the
+        # Z Offset in Slide Coordinate System appears to be either undefined or
+        # implicitly defined at 0.0.
+        z_offset = 0.0
+
     image_orientation = image.ImageOrientationSlide
     image_origin = image.TotalPixelMatrixOriginSequence[0]
     image_position = (
-        image_origin.XOffsetInSlideCoordinateSystem,
-        image_origin.YOffsetInSlideCoordinateSystem,
-        0.0,  # TODO
+        float(image_origin.XOffsetInSlideCoordinateSystem),
+        float(image_origin.YOffsetInSlideCoordinateSystem),
+        z_offset,
     )
     pixel_spacing = (
         image.SharedFunctionalGroupsSequence[0]
@@ -339,26 +297,11 @@ def compute_tile_contours(
         pixel_spacing=pixel_spacing,
     )
 
-    num_focal_planes = getattr(image, "NumberOfFocalPlanes", 1)
-    if num_focal_planes > 1:
-        raise ValueError(
-            "Images with multiple focal planes are not supported."
-        )
-
-    if "PerFrameFunctionalGroupsSequence" in image:
-        plane_positions = [
-            item.PlanePositionSequence
-            for item in image.PerFrameFunctionalGroupsSequence
-        ]
-    else:
-        plane_positions = hd.utils.compute_plane_position_slide_per_frame(
-            image
-        )
-
     rows = image.Rows
     cols = image.Columns
     contours = []
-    for frame_index in range(int(image.NumberOfFrames)):
+    for n in frame_numbers:
+        frame_index = n - 1
         frame_position = plane_positions[frame_index][0]
         r = frame_position.RowPositionInTotalImagePixelMatrix
         c = frame_position.ColumnPositionInTotalImagePixelMatrix
@@ -374,8 +317,4 @@ def compute_tile_contours(
         )
         contours.append(transformer(frame_pixel_coordinates))
 
-    return (
-        hd.sr.GraphicTypeValues3D.POLYGON,
-        contours,
-        image.FrameOfReferenceUID,
-    )
+    return contours
