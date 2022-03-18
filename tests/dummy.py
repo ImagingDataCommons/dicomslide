@@ -46,6 +46,10 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
             hd.DimensionOrganizationTypeValues, str
         ],
         transfer_syntax_uid: str,
+        frame_of_reference_uid: str,
+        container_id: str,
+        specimen_id: str,
+        specimen_uid: str
     ) -> None:
         """Construct object.
 
@@ -58,9 +62,9 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
         sop_instance_uid: str
             Unique instance identifier
         series_number: int
-            Series number (one-based)
+            Number of the series in the study
         instance_number: int
-            Instance number (one-based)
+            Number of the instance in the series
         image_type: Tuple[str, str, str, str]
             Image type (e.g., ``('ORIGINAL', 'PRIMARY', 'VOLUME', 'NONE')``)
         rows: int
@@ -108,6 +112,15 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
         transfer_syntax_uid: str
             Transfer syntax for encoding of frames (supported are JPEG Baseline
             for 8-bit images and JPEG 2000 for 16-bit images)
+        frame_of_reference_uid: str
+            Unique identifier of the frame of reference (slide coordinate
+            system)
+        container_id: str
+            Identifier of the container (glass slide)
+        specimen_id: str
+            Identifier of the specimen (tissue section)
+        specimen_uid: str
+            Unique identifier of the specimen (tissue section)
 
         Returns
         -------
@@ -189,7 +202,7 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
             )
         for i in range(number_of_optical_paths):
             optical_path_item = Dataset()
-            optical_path_item.OpticalPathIdentifier = str(i)
+            optical_path_item.OpticalPathIdentifier = str(i + 1)
             if self.PhotometricInterpretation == "MONOCHROME2":
                 optical_path_item.IlluminationWaveLength = wavelengths[i]
                 optical_path_item.IlluminationTypeCodeSequence = [
@@ -228,7 +241,12 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
         self.ImagedVolumeHeight = round(
             total_pixel_matrix_rows * pixel_spacing[0], 6
         )
-        self.ImagedVolumeDepth = number_of_focal_planes * 2  # arbitrary value
+        slice_thickness = 0.0001
+        spacing_between_slices = 0.001
+        self.ImagedVolumeDepth = (
+            (number_of_focal_planes * spacing_between_slices) +
+            slice_thickness
+        )
         row_direction_cosines = np.array(image_orientation[:3])
         column_direction_cosines = np.array(image_orientation[3:])
         if not (
@@ -260,13 +278,13 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
         )
 
         dimension_organization_uid = hd.UID()
-        self.FrameOfReferenceUID = hd.UID()
+        self.FrameOfReferenceUID = frame_of_reference_uid
         self.PositionReferenceIndicator = "SLIDE_CORNER"
         dim_org_item = Dataset()
         dim_org_item.DimensionOrganizationUID = dimension_organization_uid
         self.DimensionOrganizationSequence = [dim_org_item]
 
-        self.ContainerIdentifier = "C1"
+        self.ContainerIdentifier = container_id
         self.IssuerOfTheContainerIdentifierSequence = None
         self.ContainerTypeCodeSequence = [
             hd.sr.CodedConcept(
@@ -276,8 +294,8 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
             ),
         ]
         specimen_description_item = hd.SpecimenDescription(
-            specimen_id="S1",
-            specimen_uid=hd.UID()
+            specimen_id=specimen_id,
+            specimen_uid=specimen_uid
         )
         self.SpecimenDescriptionSequence = [specimen_description_item]
 
@@ -293,7 +311,11 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
         sfgs_item = Dataset()
         pms_item = Dataset()
         pms_item.PixelSpacing = [round(space, 6) for space in pixel_spacing]
-        pms_item.SliceThickness = self.ImagedVolumeDepth / 10 ** 3
+        if number_of_focal_planes > 1 and not extended_depth_of_field:
+            pms_item.SliceThickness = slice_thickness
+            pms_item.SpacingBetweenSlices = spacing_between_slices
+        else:
+            pms_item.SliceThickness = slice_thickness
         sfgs_item.PixelMeasuresSequence = [pms_item]
         wsmifts_item = Dataset()
         wsmifts_item.FrameType = self.ImageType
@@ -375,14 +397,8 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
                 coordinates = np.dot(mapping, index)
                 x_offset = coordinates[0][0]
                 y_offset = coordinates[1][0]
-                if hasattr(self, "DistanceBetweenFocalPlanes"):
-                    z_offset = np.product(
-                        [
-                            z_index,
-                            self.DistanceBetweenFocalPlanes,
-                            self.ImagedVolumeDepth,
-                        ]
-                    )
+                if number_of_focal_planes > 1 and not extended_depth_of_field:
+                    z_offset = z_index * spacing_between_slices
                 else:
                     z_offset = 0.0
 
