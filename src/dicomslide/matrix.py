@@ -35,6 +35,13 @@ def _determine_transfer_syntax(frame: bytes) -> UID:
     pydicom.uid.UID
         UID of transfer syntax
 
+    Warning
+    -------
+    The function makes the assumption that the frame was encoded using
+    using a JPEG, JPEG 2000, or JPEG-LS compression codec or encoded natively
+    (uncompressed). If another compression codec was used, the function will
+    fail to detec the correct transfer syntax.
+
     """
 
     def is_jpeg(frame):
@@ -46,7 +53,7 @@ def _determine_transfer_syntax(frame: bytes) -> UID:
         return False
 
     def is_jpeg2000(frame):
-        start_marker = b"\xFF\x4F"
+        start_marker = b"\x00\x00\x00\x0C\x6A\x50\x20\x20\x0D\x0A\x87\x0A"
         end_markers = (b"\xFF\xD9", b"\xFF\xD9\x00")  # may be zero padded
         if frame.startswith(start_marker):
             if any([frame.endswith(marker) for marker in end_markers]):
@@ -61,7 +68,6 @@ def _determine_transfer_syntax(frame: bytes) -> UID:
                 return True
         return False
 
-    # We assume that frames are either JPEG, JPEG-LS, or JPEG2000 compressed
     if is_jpegls(frame):
         # Needs to be checked before JPEG because they share SOI and EOI marker
         return UID("1.2.840.10008.1.2.4.80")
@@ -265,10 +271,14 @@ class TotalPixelMatrix:
         # Retrieve frames that have not yet been cached
         selected_frame_numbers = []
         for index in frame_indices:
+            frame_number = index + 1
             if index not in self._cache:
-                selected_frame_numbers.append(index + 1)
+                selected_frame_numbers.append(frame_number)
+            else:
+                logger.debug(f'reuse cached frame {frame_number}')
 
         if len(selected_frame_numbers) > 0:
+            logger.debug(f'retrieve frames {selected_frame_numbers}')
             frames = self._client.retrieve_instance_frames(
                 study_instance_uid=self._metadata.StudyInstanceUID,
                 series_instance_uid=self._metadata.SeriesInstanceUID,
@@ -288,19 +298,24 @@ class TotalPixelMatrix:
             # Decode and cache retrieved frames
             for i, number in enumerate(selected_frame_numbers):
                 frame_item = frames[i]
+                transfer_syntax_uid = _determine_transfer_syntax(frame_item)
+                logger.debug(
+                    f'decode frame {number} with transfer syntax '
+                    f'"{transfer_syntax_uid}"'
+                )
                 array = self._decode_frame(
                     frame=frame_item,
-                    transfer_syntax_uid=_determine_transfer_syntax(frame_item)
+                    transfer_syntax_uid=transfer_syntax_uid
                 )
                 array = self._transform_fn(array)
                 if self._metadata.SamplesPerPixel == 1 and array.ndim == 2:
                     array = array[..., np.newaxis]
                 index = number - 1
-                self._cache[index] = array
+                self._cache[index] = (array, number)
 
         # Get cached frames
         pixel_array_mapping = {
-            index: self._cache[index]
+            index: self._cache[index][0]
             for index in frame_indices
         }
 
@@ -308,7 +323,8 @@ class TotalPixelMatrix:
         cache_diff = len(self._cache) - self._max_frame_cache_size
         if cache_diff > 0:
             for _ in range(cache_diff):
-                self._cache.popitem(last=False)
+                array, number = self._cache.popitem(last=False)
+                logger.debug(f'removed frame {number} from cache')
 
         return pixel_array_mapping
 

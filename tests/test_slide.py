@@ -244,7 +244,7 @@ def test_color_images(client, dimension_organization_type):
 
 def test_grayscale_images(client):
     expected_num_optical_paths = 2
-    expected_num_focal_planes = 5
+    expected_num_focal_planes = 3
     expected_samples_per_pixel = 1
     groups = generate_test_images(
         number_of_optical_paths=expected_num_optical_paths,

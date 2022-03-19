@@ -163,7 +163,6 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
         self.ImageType = image_type
 
         self.SamplesPerPixel = samples_per_pixel
-        image_dtype: Union[np.unit8, np.uint16]
         if samples_per_pixel == 3:
             if transfer_syntax_uid in (JPEGBaseline8Bit, JPEG2000Lossless):
                 self.PhotometricInterpretation = "YBR_FULL_422"
@@ -182,9 +181,9 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
             self.RescaleSlope = 1
             self.PresentationLUTShape = "IDENTITY"
             image_shape = [rows, columns]
-            image_dtype = np.uint16
         else:
             raise ValueError("Unsupported number of samples per pixel.")
+        image_dtype = np.dtype(f'uint{self.BitsAllocated}')
         self.BitsStored = self.BitsAllocated
         self.HighBit = self.BitsAllocated - 1
         self.PixelRepresentation = 0
@@ -427,7 +426,7 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
                 self.PerFrameFunctionalGroupsSequence.append(pffg_item)
 
             tile = np.ones(image_shape, dtype=image_dtype)
-            tile *= image_dtype(pixel_value)
+            tile *= image_dtype.type(pixel_value)
             if transfer_syntax_uid == JPEGBaseline8Bit:
                 self.LossyImageCompression = "01"
                 self.LossyImageCompressionMethod = "ISO_10918_1"
@@ -440,7 +439,9 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
             ):
                 self.LossyImageCompression = "00"
             else:
-                raise ValueError("Unsupported transfer syntax.")
+                raise ValueError(
+                    f'Unsupported transfer syntax "{transfer_syntax_uid}".'
+                )
 
             encoded_frame = hd.frame.encode_frame(
                 array=tile,

@@ -10,10 +10,14 @@ from dicomweb_client import DICOMClient
 from pydicom import Dataset
 from pydicom._storage_sopclass_uids import VLWholeSlideMicroscopyImageStorage
 
-from dicomslide.enum import ImageFlavors
 from dicomslide.image import TiledImage
 from dicomslide.pyramid import get_image_size
-from dicomslide.utils import encode_dataset
+from dicomslide.utils import (
+    encode_dataset,
+    is_volume_image,
+    is_label_image,
+    is_overview_image,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,19 @@ class Slide:
     been acquired as part of one image acquisition for the same physical glass
     slide (container) and can be visualized and analyzed in the same frame of
     reference (coordinate system).
+
+    A slide consists of one or more image pyramids - one for each unique pair
+    of optical path and focal plane. The total pixel matrices of the different
+    pyramid levels are stored in separate DICOM image instances. Individual
+    optical paths or focal planes may be each stored in separate DICOM image
+    instances or combined in a single DICOM image instance per pyramid level.
+    Pyramids are expected to have the same number of levels and the same
+    downsampling factors across optical paths and focal planes and the total
+    pixel matrices at each level are expected to have the same dimensions
+    (i.e., the same number of total pixel matrix columns and rows). However,
+    the tiling of the total pixel matrices (i.e., the number of tile columns
+    and rows) may differ across pyramid levels as well as across optical paths
+    and focal planes at the same pyramid level.
 
     A slide may further be associated with additional DICOM Segmentation,
     Parametric Map, Comprehensive 3D SR, or other types of instances that were
@@ -53,6 +70,15 @@ class Slide:
         max_frame_cache_size: int, optional
             Maximum number of frames that should be cached per image instance
             to avoid repeated retrieval requests
+
+        Raises
+        ------
+        ValueError
+            When for any item of `image_metadata` the value of attribute
+            SOP Class UID attribute is not ``"1.2.840.10008.5.1.4.1.1.77.1.6"``
+            (VL Whole Slide Microscopy Image) or when the values of attributes
+            Container Identifier or Frame of Reference UID differ between
+            items of `image_metadata`.
 
         """
         if not isinstance(image_metadata, Sequence):
@@ -94,26 +120,23 @@ class Slide:
                 image_metadata=metadata,
                 max_frame_cache_size=max_frame_cache_size
             )
-            if metadata.ImageType[2] in (
-                ImageFlavors.THUMBNAIL.value,
-                ImageFlavors.VOLUME.value,
-            ):
+            if is_volume_image(metadata):
                 iterator = itertools.product(
                     range(1, image.num_optical_paths + 1),
                     range(1, image.num_focal_planes + 1),
                 )
                 for optical_path_index, focal_plane_index in iterator:
-                    optical_path_id = image.get_optical_path_identifier(
+                    optical_path_identifier = image.get_optical_path_identifier(
                         optical_path_index
                     )
                     focal_plane_offset = image.get_focal_plane_offset(
                         focal_plane_index
                     )
-                    key = (optical_path_id, focal_plane_offset)
+                    key = (optical_path_identifier, focal_plane_offset)
                     volume_images_lut[key].append(image)
-            if metadata.ImageType[2] == ImageFlavors.OVERVIEW.value:
+            if is_overview_image(metadata):
                 overview_images.append(image)
-            if metadata.ImageType[2] == ImageFlavors.LABEL.value:
+            if is_label_image(metadata):
                 label_images.append(image)
 
         if len(volume_images_lut) == 0:
@@ -453,17 +476,18 @@ class Slide:
 
         col_index, row_index = pixel_indices
         col_factor, row_factor = self._pyramid[level]['downsampling_factor']
-        col_offset = int(np.floor(col_index / col_factor))
-        row_offset = int(np.floor(row_index / row_factor))
+        col_start = int(np.floor(col_index / col_factor))
+        row_start = int(np.floor(row_index / row_factor))
         cols, rows = size
-        try:
-            return matrix[
-                row_offset:(row_offset + rows),
-                col_offset:(col_offset + cols),
-                :
-            ]
-        except Exception as error:
-            raise IndexError(f'Failed to read image region: {error}')
+        row_end = row_start + rows
+        col_end = col_start + cols
+        logger.debug(
+            f'region [{row_start}:{row_end}, {col_start}:{col_end}, :] '
+            f'for optical path {optical_path_index} and '
+            f'focal plane {focal_plane_index} '
+            f'from image "{image.metadata.SOPInstanceUID}"'
+        )
+        return matrix[row_start:row_end, col_start:col_end, :]
 
     def get_slide_region(
         self,
