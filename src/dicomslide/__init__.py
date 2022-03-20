@@ -12,17 +12,15 @@ from dicomslide.pyramid import (
     sort_images_by_pixel_spacing,
     sort_images_by_size,
 )
+from dicomslide.openslide import OpenSlide
+from dicomslide.pyramid import Pyramid, PyramidLevel
+from dicomslide.slide import find_slides, Slide
 from dicomslide.tile import (
     assemble_total_pixel_matrix,
     compute_frame_positions,
     disassemble_total_pixel_matrix,
     get_frame_contours,
 )
-from dicomslide.slide import (
-    find_slides,
-    Slide,
-)
-from dicomslide.openslide import OpenSlide
 
 
 __all__ = [
@@ -36,6 +34,8 @@ __all__ = [
     'get_image_size',
     'ImageFlavors',
     'OpenSlide',
+    'Pyramid',
+    'PyramidLevel',
     'select_image_at_magnification',
     'select_image_at_pixel_spacing',
     'Slide',
