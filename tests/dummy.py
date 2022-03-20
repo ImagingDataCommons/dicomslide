@@ -49,7 +49,8 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
         frame_of_reference_uid: str,
         container_id: str,
         specimen_id: str,
-        specimen_uid: str
+        specimen_uid: str,
+        spacing_between_slices: float = 0.001,
     ) -> None:
         """Construct object.
 
@@ -241,17 +242,16 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
             total_pixel_matrix_rows * pixel_spacing[0], 6
         )
         slice_thickness = 0.0001
-        spacing_between_slices = 0.001
         self.ImagedVolumeDepth = (
             (number_of_focal_planes * spacing_between_slices) +
             slice_thickness
         )
         row_direction_cosines = np.array(image_orientation[:3])
-        column_direction_cosines = np.array(image_orientation[3:])
+        col_direction_cosines = np.array(image_orientation[3:])
         if not (
-            np.dot(row_direction_cosines, column_direction_cosines) == 0
-            and np.dot(row_direction_cosines, row_direction_cosines) == 1
-            and np.dot(column_direction_cosines, column_direction_cosines) == 1
+            np.dot(row_direction_cosines, col_direction_cosines) == 0 and
+            np.dot(row_direction_cosines, row_direction_cosines) == 1 and
+            np.dot(col_direction_cosines, col_direction_cosines) == 1
         ):
             raise ValueError("Incorrect image orientation.")
         self.ImageOrientationSlide = list(image_orientation)
@@ -385,8 +385,7 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
                 mapping = np.concatenate(
                     [
                         row_direction_cosines[..., None].T * pixel_spacing[0],
-                        column_direction_cosines[..., None].T
-                        * pixel_spacing[1],
+                        col_direction_cosines[..., None].T * pixel_spacing[1],
                         np.zeros((3, 1)).T,
                         img_pos[..., None].T,
                     ]

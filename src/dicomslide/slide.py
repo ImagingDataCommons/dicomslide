@@ -168,8 +168,16 @@ class Slide:
             i + 1: optical_path_id
             for i, optical_path_id in enumerate(unique_optical_path_identifiers)
         })
+        self._optical_path_index_lut: Mapping[str, int] = OrderedDict({
+            optical_path_id: i + 1
+            for i, optical_path_id in enumerate(unique_optical_path_identifiers)
+        })
         self._focal_plane_offset_lut: Mapping[int, float] = OrderedDict({
             i + 1: focal_plane_offset
+            for i, focal_plane_offset in enumerate(unique_focal_plane_offsets)
+        })
+        self._focal_plane_index_lut: Mapping[float, int] = OrderedDict({
+            focal_plane_offset: i + 1
             for i, focal_plane_offset in enumerate(unique_focal_plane_offsets)
         })
         encoded_image_metadata = []
@@ -312,8 +320,36 @@ class Slide:
             return self._optical_path_identifier_lut[optical_path_index]
         except IndexError:
             raise ValueError(
-                'No VOLUME or THUMNAIL image found for optical path '
+                'No VOLUME or THUMNAIL image found for optical path index '
                 f'{optical_path_index}.'
+            )
+
+    def get_optical_path_index(self, optical_path_identifier: str) -> int:
+        """Get index of an optical path.
+
+        Parameters
+        ----------
+        optical_path_identifier: str
+            Optical path identifier
+
+        Returns
+        -------
+        int
+            One-based index into optical paths along the direction defined by
+            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+
+        Raises
+        ------
+        ValueError
+            When no optical path is found for `optical_path_identifier`
+
+        """
+        try:
+            return self._optical_path_index_lut[optical_path_identifier]
+        except IndexError:
+            raise ValueError(
+                'No VOLUME or THUMNAIL image found for optical path identifier '
+                f'{optical_path_identifier}.'
             )
 
     @property
@@ -348,8 +384,39 @@ class Slide:
             return self._focal_plane_offset_lut[focal_plane_index]
         except IndexError:
             raise ValueError(
-                'No VOLUME or THUMNAIL image found for focal plane '
+                'No VOLUME or THUMNAIL image found for focal plane index '
                 f'{focal_plane_index}.'
+            )
+
+    def get_focal_plane_index(self, focal_plane_offset: float) -> int:
+        """Get index of a focal plane.
+
+        Parameters
+        ----------
+        focal_plane_offset: float
+            Offset of the focal plane from the from the slide surface along the
+            Z axis of the slide coordinate system in micrometers
+
+        Returns
+        -------
+        int
+            One-based index into focal planes along depth direction from the
+            glass slide towards the coverslip in the slide coordinate system
+            specified by the Z Offset in Slide Coordinate System attribute of
+            VOLUME or THUMBNAIL images.
+
+        Raises
+        ------
+        ValueError
+            When no focal plane is found for `focal_plane_offset`
+
+        """
+        try:
+            return self._focal_plane_index_lut[focal_plane_offset]
+        except IndexError:
+            raise ValueError(
+                'No VOLUME or THUMNAIL image found for focal plane offset '
+                f'{focal_plane_offset}.'
             )
 
     @property
@@ -512,11 +579,11 @@ class Slide:
 
         Parameters
         ----------
-        slide_coordinates: Tuple[float, float]
+        slide_coordinates: Tuple[float, float, float]
             Zero-based (x, y) coordinates at millimeter resolution in
             the slide coordinate system defined by the frame of reference.
-            The ``(0, 0)`` coordinate is located at the origin of the slide
-            (which is usually the slide corner).
+            The ``(0.0, 0.0)`` coordinate is located at the origin of the
+            slide (which is usually the slide corner).
         level: int
             Pyramid level
         size: Tuple[float, float]
@@ -534,7 +601,7 @@ class Slide:
         -------
         numpy.ndarray
             Three-dimensional pixel array of shape
-            (Rows, Columns, Samples per Pixel) for the requested image region
+            (Rows, Columns, Samples per Pixel) for the requested slide region
 
         """
         logger.debug(
@@ -553,12 +620,13 @@ class Slide:
             raise IndexError(f'Slide does not have level {level}.')
 
         focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
+
         image_orientation = image.metadata.ImageOrientationSlide
         image_origin = image.metadata.TotalPixelMatrixOriginSequence[0]
         image_position = (
             float(image_origin.XOffsetInSlideCoordinateSystem),
             float(image_origin.YOffsetInSlideCoordinateSystem),
-            focal_plane_offset,
+            focal_plane_offset / 10**3,
         )
         pixel_spacing = self.pixel_spacings[level]
         transformer = hd.spatial.ReferenceToPixelTransformer(
@@ -587,7 +655,11 @@ class Slide:
             )
 
         coordinates = np.array([
-            [slide_coordinates[0], slide_coordinates[1], focal_plane_offset],
+            [
+                slide_coordinates[0],
+                slide_coordinates[1],
+                focal_plane_offset / 10**3,
+            ]
         ])
         pixel_indices = transformer(coordinates)
         col_index, row_index, _ = pixel_indices[0, :]
@@ -627,6 +699,101 @@ class Slide:
         ] = matrix[row_start:row_stop, col_start:col_stop, :]
 
         return region
+
+    def get_slide_region_for_annotation(
+        self,
+        annotation: hd.sr.Scoord3DContentItem,
+        level: int,
+        optical_path_index: int = 1,
+        padding: int = 0
+    ) -> np.ndarray:
+        """Get slide region defined by a graphic annotation.
+
+        Parameters
+        ----------
+        annotation: highdicom.sr.Scoord3DContentItem
+            Graphic annotation that defines the region of interest (ROI) in the
+            slide coordinate system
+        level: int
+            Pyramid level
+        optical_path_index: int, optional
+            One-based index into optical paths along the direction defined by
+            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+        padding: int, optional
+            Number of pixels that should be padded to the image of the slide
+            region
+
+        Returns
+        -------
+        numpy.ndarray
+            Three-dimensional pixel array of shape
+            (Rows, Columns, Samples per Pixel) for the requested slide region
+
+        """
+        slide_coordinates: Tuple[float, float]
+        size: Tuple[float, float]
+        focal_plane_offset: float
+        graphic_data = annotation.value
+        if annotation.graphic_type == hd.sr.GraphicTypeValues3D.POINT:
+            slide_coordinates = (graphic_data[0, 0], graphic_data[0, 1])
+            focal_plane_offset = graphic_data[0, 2]
+            size = (0.0, 0.0)
+        elif annotation.graphic_type in (
+            hd.sr.GraphicTypeValues3D.MULTIPOINT,
+            hd.sr.GraphicTypeValues3D.POLYGON,
+            hd.sr.GraphicTypeValues3D.POLYLINE,
+        ):
+            min_point = np.min(graphic_data, axis=0)
+            max_point = np.max(graphic_data, axis=0)
+            slide_coordinates = (min_point[0], min_point[1])
+            focal_plane_offset = min_point[2]
+            size = (max_point[0] - min_point[0], max_point[1] - min_point[1])
+        elif annotation.graphic_type == hd.sr.GraphicTypeValues3D.ELLIPSE:
+            min_point = [
+                np.min([graphic_data[:, 0]]),
+                np.min([graphic_data[:, 1]]),
+            ]
+            max_point = [
+                np.max([graphic_data[:, 0]]),
+                np.max([graphic_data[:, 1]]),
+            ]
+            slide_coordinates = (min_point[0], min_point[1])
+            focal_plane_offset = min_point[2]
+            size = (max_point[0] - min_point[0], max_point[1] - min_point[1])
+        elif annotation.graphic_type == hd.sr.GraphicTypeValues3D.ELLIPSOID:
+            raise ValueError(
+                'SCOORD3D graphic type "ELLIPSOID" is not supported, '
+                'because annotations must be planar and the plane must be '
+                'parallel to the slide surface.'
+            )
+        else:
+            raise ValueError(
+                'Unknown SCOORD3D graphic type "{annotation.graphic_type}".'
+            )
+
+        # TODO: Instead of expecting an exact match, one could select the
+        # focal plane closest to the annotated region of interest (ROI).
+        # The coordinates of the ROI are expected to be co-planar and parallel
+        # to the slide surface but they may not be located on the same plane
+        # as any of the available focal planes.
+        focal_plane_index = self.get_focal_plane_index(focal_plane_offset)
+
+        pixel_spacing = self.pixel_spacings[level]
+        padding_millimeter = padding / pixel_spacing
+
+        return self.get_slide_region(
+            slide_coordinates=(
+                slide_coordinates[0] - padding_millimeter,
+                slide_coordinates[1] - padding_millimeter,
+            ),
+            level=level,
+            size=(
+                size[0] + padding_millimeter * 2,
+                size[1] + padding_millimeter * 2,
+            ),
+            optical_path_index=optical_path_index,
+            focal_plane_index=focal_plane_index
+        )
 
 
 def find_slides(

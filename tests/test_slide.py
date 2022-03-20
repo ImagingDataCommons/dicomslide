@@ -44,6 +44,7 @@ def generate_test_images(
                     rows=32,
                     columns=32,
                     pixel_spacing=(0.001, 0.001),
+                    spacing_between_slices=0.001,
                     number_of_focal_planes=number_of_focal_planes,
                     number_of_optical_paths=number_of_optical_paths,
                     samples_per_pixel=samples_per_pixel,
@@ -56,6 +57,7 @@ def generate_test_images(
                     rows=32,
                     columns=32,
                     pixel_spacing=(0.002, 0.002),
+                    spacing_between_slices=0.001,
                     number_of_focal_planes=number_of_focal_planes,
                     number_of_optical_paths=number_of_optical_paths,
                     samples_per_pixel=samples_per_pixel,
@@ -68,6 +70,7 @@ def generate_test_images(
                     rows=32,
                     columns=32,
                     pixel_spacing=(0.004, 0.004),
+                    spacing_between_slices=0.001,
                     number_of_focal_planes=number_of_focal_planes,
                     number_of_optical_paths=number_of_optical_paths,
                     samples_per_pixel=samples_per_pixel,
@@ -80,6 +83,7 @@ def generate_test_images(
                     rows=64,
                     columns=32,
                     pixel_spacing=(0.008, 0.008),
+                    spacing_between_slices=0.001,
                     number_of_focal_planes=number_of_focal_planes,
                     number_of_optical_paths=number_of_optical_paths,
                     samples_per_pixel=samples_per_pixel,
@@ -205,6 +209,27 @@ def test_color_images(client, dimension_organization_type):
             np.ones((28, 37, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
 
+        np.testing.assert_array_equal(
+            slide.get_slide_region(
+                slide_coordinates=(0.0, 0.0),
+                level=3,
+                size=(0.5, 0.25),
+                optical_path_index=1,
+                focal_plane_index=1
+            ),
+            np.ones((32, 63, expected_samples_per_pixel), dtype=np.uint8) * 255
+        )
+        np.testing.assert_array_equal(
+            slide.get_slide_region(
+                slide_coordinates=(10.0, 20.0),
+                level=2,
+                size=(0.05, 0.03),
+                optical_path_index=1,
+                focal_plane_index=1
+            ),
+            np.ones((8, 13, expected_samples_per_pixel), dtype=np.uint8) * 255
+        )
+
         openslide = OpenSlide(slide)
         assert openslide.level_count == expected_num_levels
         assert openslide.dimensions == expected_dimensions[0]
@@ -318,5 +343,32 @@ def test_grayscale_images(client):
                     np.zeros(
                         (28, 37, expected_samples_per_pixel),
                         dtype=np.uint16
+                    )
+                )
+
+                np.testing.assert_array_equal(
+                    slide.get_slide_region(
+                        slide_coordinates=(0.0, 0.0),
+                        level=3,
+                        size=(0.5, 0.25),
+                        optical_path_index=1,
+                        focal_plane_index=1
+                    ),
+                    np.zeros(
+                        (32, 63, expected_samples_per_pixel),
+                        dtype=np.uint8
+                    )
+                )
+                np.testing.assert_array_equal(
+                    slide.get_slide_region(
+                        slide_coordinates=(10.0, 20.0),
+                        level=2,
+                        size=(0.05, 0.03),
+                        optical_path_index=1,
+                        focal_plane_index=2
+                    ),
+                    np.zeros(
+                        (8, 13, expected_samples_per_pixel),
+                        dtype=np.uint8
                     )
                 )
