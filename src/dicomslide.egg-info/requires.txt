@@ -1,2 +1,0 @@
-highdicom>=0.15.1
-dicomweb_client>=0.55.0
