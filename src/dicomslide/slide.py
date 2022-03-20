@@ -490,15 +490,15 @@ class Slide:
         col_start = int(np.floor(col_index / col_factor))
         row_start = int(np.floor(row_index / row_factor))
         cols, rows = size
-        row_end = row_start + rows
-        col_end = col_start + cols
+        row_stop = row_start + rows
+        col_stop = col_start + cols
         logger.debug(
-            f'region [{row_start}:{row_end}, {col_start}:{col_end}, :] '
+            f'region [{row_start}:{row_stop}, {col_start}:{col_stop}, :] '
             f'for optical path {optical_path_index} and '
             f'focal plane {focal_plane_index} '
             f'from image "{image.metadata.SOPInstanceUID}"'
         )
-        return matrix[row_start:row_end, col_start:col_end, :]
+        return matrix[row_start:row_stop, col_start:col_stop, :]
 
     def get_slide_region(
         self,
@@ -586,23 +586,33 @@ class Slide:
                 focal_plane_index=image_focal_plane_index
             )
 
-        pixel_indices = transformer(np.array([slide_coordinates]))
-        col_index, row_index = pixel_indices[0, :]
+        coordinates = np.array([
+            [slide_coordinates[0], slide_coordinates[1], focal_plane_offset],
+        ])
+        pixel_indices = transformer(coordinates)
+        col_index, row_index, _ = pixel_indices[0, :]
 
-        region_col_offset = 0
+        region_cols = int(np.ceil(size[0] / pixel_spacing[0]))
+        region_rows = int(np.ceil(size[1] / pixel_spacing[1]))
+
+        region_col_start = 0
         if col_index < 0:
-            region_col_offset = abs(col_index)
-        region_row_offset = 0
+            region_col_start = abs(col_index)
+        region_row_start = 0
         if row_index < 0:
-            region_row_offset = abs(row_index)
-        region_cols = int(np.ceil(size[0] * pixel_spacing[0]))
-        region_rows = int(np.ceil(size[1] * pixel_spacing[1]))
+            region_row_start = abs(row_index)
 
         # Region may extend beyond the image's total pixel matrix
-        col_offset = min([max([col_index, 0]), matrix.shape[1]])
-        row_offset = min([max([row_index, 0]), matrix.shape[0]])
-        cols = min([region_cols, matrix.shape[1] - region_col_offset])
-        rows = min([region_rows, matrix.shape[0] - region_row_offset])
+        col_start = min([max([col_index, 0]), matrix.shape[1] - 1])
+        row_start = min([max([row_index, 0]), matrix.shape[0] - 1])
+        cols = min([region_cols, matrix.shape[1] - col_start - 1])
+        rows = min([region_rows, matrix.shape[0] - row_start - 1])
+
+        col_stop = col_start + cols
+        row_stop = row_start + rows
+
+        region_row_stop = region_row_start + rows
+        region_col_stop = region_col_start + cols
 
         region = np.zeros(
             (region_rows, region_cols, matrix.shape[2]),
@@ -612,13 +622,9 @@ class Slide:
             region += 255
 
         region[
-            region_row_offset:(region_row_offset + rows),
-            region_col_offset:(region_col_offset + cols)
-        ] = matrix[
-            row_offset:(row_offset + rows),
-            col_offset:(col_offset + cols),
-            :
-        ]
+            region_row_start:region_row_stop,
+            region_col_start:region_col_stop
+        ] = matrix[row_start:row_stop, col_start:col_stop, :]
 
         return region
 

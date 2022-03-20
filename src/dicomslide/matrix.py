@@ -455,7 +455,7 @@ class TotalPixelMatrix:
         row_stop_tile_index = int(np.ceil(row_stop_tile_fraction))
         row_tile_range = list(range(row_start_tile_index, row_stop_tile_index))
         region_row_start = int(
-            np.floor(
+            np.ceil(
                 (row_start_tile_fraction - row_start_tile_index) * self._rows
             )
         )
@@ -495,7 +495,7 @@ class TotalPixelMatrix:
         col_stop_tile_index = int(np.ceil(col_stop_tile_fraction))
         col_tile_range = list(range(col_start_tile_index, col_stop_tile_index))
         region_col_start = int(
-            np.floor(
+            np.ceil(
                 (col_start_tile_fraction - col_start_tile_index) * self._cols
             )
         )
