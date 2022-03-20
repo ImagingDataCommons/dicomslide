@@ -542,12 +542,12 @@ class TotalPixelMatrix:
             # Column/Row Position In Total Image Pixel Matrix attributes.
             frame_position_mapping[frame_index] = (
                 (
-                    self._tile_positions[tile_index, 0]
-                    - (col_start_tile_index * self._cols)
+                    self._tile_positions[tile_index, 0] -
+                    (col_start_tile_index * self._cols)
                 ),
                 (
-                    self._tile_positions[tile_index, 1]
-                    - (row_start_tile_index * self._rows)
+                    self._tile_positions[tile_index, 1] -
+                    (row_start_tile_index * self._rows)
                 ),
             )
 

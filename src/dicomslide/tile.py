@@ -93,8 +93,7 @@ def assemble_total_pixel_matrix(
                     tiles[0].shape[2],
                 ),
                 dtype=tiles[0].dtype,
-            )
-            * 255
+            ) * 255
         )
     else:
         rows, columns = tiles[0].shape[-2:]

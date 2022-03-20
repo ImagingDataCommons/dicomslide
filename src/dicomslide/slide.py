@@ -2,7 +2,16 @@ import itertools
 import logging
 from collections import defaultdict, OrderedDict
 from hashlib import sha256
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import (
+    Dict,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import highdicom as hd
 import numpy as np
@@ -11,7 +20,7 @@ from pydicom import Dataset
 from pydicom._storage_sopclass_uids import VLWholeSlideMicroscopyImageStorage
 
 from dicomslide.image import TiledImage
-from dicomslide.pyramid import get_image_size
+from dicomslide.pyramid import get_image_size, Pyramid
 from dicomslide.utils import (
     encode_dataset,
     is_volume_image,
@@ -56,7 +65,8 @@ class Slide:
         self,
         client: DICOMClient,
         image_metadata: Sequence[Dataset],
-        max_frame_cache_size: int = 6
+        max_frame_cache_size: int = 6,
+        pyramid_tolerance: float = 0.1
     ):
         """
 
@@ -70,15 +80,10 @@ class Slide:
         max_frame_cache_size: int, optional
             Maximum number of frames that should be cached per image instance
             to avoid repeated retrieval requests
-
-        Raises
-        ------
-        ValueError
-            When for any item of `image_metadata` the value of attribute
-            SOP Class UID attribute is not ``"1.2.840.10008.5.1.4.1.1.77.1.6"``
-            (VL Whole Slide Microscopy Image) or when the values of attributes
-            Container Identifier or Frame of Reference UID differ between
-            items of `image_metadata`.
+        pyramid_tolerance: float, optional
+            Maximally tolerated distances between the centers of images at
+            different pyramid levels in the slide coordinate system in
+            millimeter unit
 
         """
         if not isinstance(image_metadata, Sequence):
@@ -110,7 +115,9 @@ class Slide:
                     'Container Identifier.'
                 )
 
-        volume_images_lut = defaultdict(list)
+        volume_images_lut: Dict[
+            Tuple[str, float], List[TiledImage]
+        ] = defaultdict(list)
         label_images = []
         overview_images = []
         for metadata in image_metadata:
@@ -120,7 +127,7 @@ class Slide:
                 max_frame_cache_size=max_frame_cache_size
             )
             if is_volume_image(metadata):
-                iterator = itertools.product(
+                iterator: Iterator[Tuple[int, int]] = itertools.product(
                     range(1, image.num_optical_paths + 1),
                     range(1, image.num_focal_planes + 1),
                 )
@@ -131,7 +138,10 @@ class Slide:
                     focal_plane_offset = image.get_focal_plane_offset(
                         focal_plane_index
                     )
-                    key = (optical_path_identifier, focal_plane_offset)
+                    key: Tuple[str, float] = (
+                        optical_path_identifier,
+                        focal_plane_offset,
+                    )
                     volume_images_lut[key].append(image)
             if is_overview_image(metadata):
                 overview_images.append(image)
@@ -144,6 +154,7 @@ class Slide:
             )
         self._label_images = tuple(label_images)
         self._overview_images = tuple(overview_images)
+        self._volume_images: Dict[Tuple[int, int], Tuple[TiledImage, ...]] = {}
 
         unique_optical_path_identifiers = set()
         unique_focal_plane_offsets = set()
@@ -161,22 +172,24 @@ class Slide:
             i + 1: focal_plane_offset
             for i, focal_plane_offset in enumerate(unique_focal_plane_offsets)
         })
-        self._volume_images: Dict[Tuple[int, int], Tuple[TiledImage, ...]] = {}
         encoded_image_metadata = []
-        for optical_path_index in self._optical_path_identifier_lut:
+        for optical_path_index in self._optical_path_identifier_lut.keys():
             optical_path_id = self._optical_path_identifier_lut[
                 optical_path_index
             ]
-            for focal_plane_index in self._focal_plane_offset_lut:
+            for focal_plane_index in self._focal_plane_offset_lut.keys():
                 focal_plane_offset = self._focal_plane_offset_lut[
                     focal_plane_index
                 ]
-                volume_images = sorted(
+                volume_images: List[TiledImage] = sorted(
                     volume_images_lut[(optical_path_id, focal_plane_offset)],
                     key=lambda image: get_image_size(image.metadata),
                     reverse=True
                 )
-                volume_image_key = (optical_path_index, focal_plane_index)
+                volume_image_key: Tuple[int, int] = (
+                    optical_path_index,
+                    focal_plane_index,
+                )
                 self._volume_images[volume_image_key] = tuple(volume_images)
                 encoded_image_metadata.extend([
                     encode_dataset(image.metadata)
@@ -187,42 +200,38 @@ class Slide:
             for image in self.overview_images + self.label_images
         ])
 
-        ref_volume_images = self._volume_images[(1, 1)]
-        ref_volume_base_image = ref_volume_images[0]
-        self._pyramid = [
-            {
-                'image_dimensions': (
-                    image.metadata.TotalPixelMatrixColumns,
-                    image.metadata.TotalPixelMatrixRows,
-                ),
-                'volume_dimensions': (
-                    float(image.metadata.ImagedVolumeWidth),
-                    float(image.metadata.ImagedVolumeHeight),
-                    float(image.metadata.ImagedVolumeDepth),
-                ),
-                'pixel_spacing': tuple([
-                    float(value)
-                    for value in (
-                        image
-                        .metadata
-                        .SharedFunctionalGroupsSequence[0]
-                        .PixelMeasuresSequence[0]
-                        .PixelSpacing
-                    )
-                ]),
-                'downsampling_factor': (
-                    (
-                        ref_volume_base_image.metadata.TotalPixelMatrixColumns /
-                        image.metadata.TotalPixelMatrixColumns
-                    ),
-                    (
-                        ref_volume_base_image.metadata.TotalPixelMatrixRows /
-                        image.metadata.TotalPixelMatrixRows
-                    ),
-                ),
-            }
-            for image in ref_volume_images
-        ]
+        pyramids: Dict[Tuple[int, int], Pyramid] = {}
+        for (
+            optical_path_index,
+            focal_plane_index,
+        ), image_collection in self._volume_images.items():
+            try:
+                pyramids[(optical_path_index, focal_plane_index)] = Pyramid(
+                    metadata=[
+                        image.metadata
+                        for image in image_collection
+                    ],
+                    tolerance=pyramid_tolerance
+                )
+            except ValueError as error:
+                raise ValueError(
+                    'VOLUME and THUMBNAIL images for optical path '
+                    f'{optical_path_index} and focal plane {focal_plane_index} '
+                    f'do not represent a valid image pyramid: {error}'
+                )
+
+        # For now, pyramids must be identical across optical paths and focal
+        # planes. This requirement could potentially be relaxed in the future.
+        ref_pyramid = pyramids[(1, 1)]
+        for pyramid in pyramids.values():
+            if pyramid != ref_pyramid:
+                raise ValueError(
+                    'Pyramids for different optical paths and focal planes '
+                    'must have the same structure: the same number of levels '
+                    'as well as the same dimensions and downsampling factors '
+                    'per level.'
+                )
+        self._pyramid = ref_pyramid
 
         # The hash is computed using the image metadata rather than the pixel
         # data to avoid having to retrieve the potentially large pixel data.
@@ -363,12 +372,9 @@ class Slide:
 
         """
         return tuple([
-            (
-                int(level['image_dimensions'][0]),
-                int(level['image_dimensions'][1]),
-            )
-            for level in self._pyramid]
-        )
+            level.total_pixel_matrix_dimensions
+            for level in self._pyramid
+        ])
 
     @property
     def pixel_spacings(self) -> Tuple[Tuple[float, float], ...]:
@@ -376,13 +382,7 @@ class Slide:
         along the row (left to right) and column (top to bottom) directions
 
         """
-        return tuple([
-            (
-                float(level['pixel_spacing'][0]),
-                float(level['pixel_spacing'][1]),
-            )
-            for level in self._pyramid
-        ])
+        return tuple([level.pixel_spacing for level in self._pyramid])
 
     @property
     def imaged_volume_dimensions(
@@ -399,11 +399,7 @@ class Slide:
 
         """
         return tuple([
-            (
-                float(level['volume_dimensions'][0]),
-                float(level['volume_dimensions'][1]),
-                float(level['volume_dimensions'][2]),
-            )
+            level.imaged_volume_dimensions
             for level in self._pyramid
         ])
 
@@ -414,7 +410,7 @@ class Slide:
 
         """
         return tuple([
-            float(np.mean(level['downsampling_factor']))
+            float(np.mean(level.downsampling_factors))
             for level in self._pyramid
         ])
 
@@ -490,7 +486,7 @@ class Slide:
             )
 
         col_index, row_index = pixel_indices
-        col_factor, row_factor = self._pyramid[level]['downsampling_factor']
+        col_factor, row_factor = self._pyramid[level].downsampling_factors
         col_start = int(np.floor(col_index / col_factor))
         row_start = int(np.floor(row_index / row_factor))
         cols, rows = size
@@ -631,6 +627,7 @@ def find_slides(
     client: DICOMClient,
     study_instance_uid: Optional[str] = None,
     max_frame_cache_size: int = 6,
+    pyramid_tolerance: float = 0.1,
     fail_on_error: bool = True
 ) -> List[Slide]:
     """Find slides.
@@ -644,6 +641,10 @@ def find_slides(
     max_frame_cache_size: int, optional
         Maximum number of frames that should be cached per image instance to
         avoid repeated retrieval requests
+    pyramid_tolerance: float, optional
+        Maximally tolerated distances between the centers of images at
+        different pyramid levels in the slide coordinate system in
+        millimeter unit
     fail_on_error: bool, optional
         Wether the function should raise an exception in case an error occurs.
         If ``False``, slides will be skipped.
@@ -716,7 +717,8 @@ def find_slides(
             slide = Slide(
                 client=client,
                 image_metadata=image_metadata,
-                max_frame_cache_size=max_frame_cache_size
+                max_frame_cache_size=max_frame_cache_size,
+                pyramid_tolerance=pyramid_tolerance
             )
         except Exception as error:
             if fail_on_error:

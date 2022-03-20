@@ -1,5 +1,6 @@
 import logging
-from typing import List, Optional, Sequence, Tuple
+from operator import eq
+from typing import Iterator, List, NamedTuple, Optional, Sequence, Tuple
 
 import highdicom as hd
 import numpy as np
@@ -284,57 +285,161 @@ def compute_image_center_position(image: Dataset) -> Tuple[float, float, float]:
     return (coordinates[0, 0], coordinates[0, 1], coordinates[0, 2])
 
 
-def assert_valid_pyramid(
-    collection: Sequence[Dataset],
-    tolerance: float = 0.001
-) -> None:
-    """Assert that images form a valid pyramid.
+class PyramidLevel(NamedTuple):
 
-    Parameters
-    ----------
-    collection: Sequence[pydicom.dataset.Dataset]
-        Metadata of DICOM image instances
-    tolerance: float, optional
-        Maximally tolerated distances between image centers in the slide
-        coordinate system in millimeter unit
+    """Image pyramid level."""
 
-    Raises
-    ------
-    ValueError
-        When images do not form a valid pyramid
+    total_pixel_matrix_dimensions: Tuple[int, int]
+    imaged_volume_dimensions: Tuple[float, float, float]
+    pixel_spacing: Tuple[float, float]
+    downsampling_factors: Tuple[float, float]
 
-    """
-    if not all([is_volume_image(image) for image in collection]):
-        raise ValueError('Pyramid must consist of VOLUME or THUMBNAIL images.')
 
-    if not all([is_tiled_image(image) for image in collection]):
-        raise ValueError('Images in pyramid must tiled.')
+class Pyramid:
 
-    sizes = [get_image_size(image) for image in collection]
-    if len(set(sizes)) != len(sizes):
-        raise ValueError('Images in pyramid must have unique sizes.')
+    """Image pyramid."""
 
-    if not np.array_equal(np.argsort(sizes), np.flip(np.arange(len(sizes)))):
-        raise ValueError(
-            'Images in pyramid must be sorted by size in decending order.'
-        )
+    def __init__(
+        self,
+        metadata: Sequence[Dataset],
+        tolerance: float
+    ) -> None:
+        """
 
-    slide_coordinates = np.array([
-        compute_image_center_position(image)
-        for image in collection
-    ])
+        Parameters
+        ----------
+        metadata: Sequence[pydicom.Dataset]
+            Metadata of DICOM image instances
+        tolerance: float
+            Maximally tolerated distances between the centers of images at
+            different pyramid levels in the slide coordinate system in
+            millimeter unit
 
-    x_diff = np.max(slide_coordinates[:, 0]) - np.min(slide_coordinates[:, 0])
-    if x_diff > tolerance:
-        raise ValueError(
-            'Images in pyramid must be spatially aligned. '
-            'X coordinates of image centers differ by {x_diff} mm, '
-            'which exceeds tolerance of {tolerance} mm.'
-        )
-    y_diff = np.max(slide_coordinates[:, 1]) - np.min(slide_coordinates[:, 1])
-    if y_diff > tolerance:
-        raise ValueError(
-            'Images in pyramid must be spatially aligned. '
-            'Y coordinates of image centers differ by {x_diff} mm, '
-            'which exceeds tolerance of {tolerance} mm.'
-        )
+        """
+        if not all([is_volume_image(image) for image in metadata]):
+            raise ValueError(
+                'Images in pyramid must have flavor VOLUME or THUMBNAIL.'
+            )
+
+        if not all([is_tiled_image(image) for image in metadata]):
+            raise ValueError('Images in pyramid must be tiled.')
+
+        sizes = [get_image_size(image) for image in metadata]
+        if len(set(sizes)) != len(sizes):
+            raise ValueError('Images in pyramid must have unique sizes.')
+
+        if not np.array_equal(
+            np.argsort(sizes),
+            np.flip(np.arange(len(sizes)))
+        ):
+            raise ValueError(
+                'Images in pyramid must be sorted by size in decending order.'
+            )
+
+        coordinates = np.array([
+            compute_image_center_position(image)
+            for image in metadata
+        ])
+        max_point = np.max(coordinates, axis=0)
+        min_point = np.min(coordinates, axis=0)
+        distance = np.linalg.norm(max_point - min_point)
+        if distance > tolerance:
+            raise ValueError(
+                'Images in pyramid must be spatially aligned. '
+                'Distances between image centers in slide coordinate system '
+                f'differ by more than {tolerance} mm: \n{coordinates}'
+            )
+
+        base_image = metadata[0]
+        self._levels = tuple([
+            PyramidLevel(
+                (
+                    image.TotalPixelMatrixColumns,
+                    image.TotalPixelMatrixRows,
+                ),
+                (
+                    float(image.ImagedVolumeWidth),
+                    float(image.ImagedVolumeHeight),
+                    float(image.ImagedVolumeDepth),
+                ),
+                (
+                    float(
+                        image
+                        .SharedFunctionalGroupsSequence[0]
+                        .PixelMeasuresSequence[0]
+                        .PixelSpacing[0]
+                    ),
+                    float(
+                        image
+                        .SharedFunctionalGroupsSequence[0]
+                        .PixelMeasuresSequence[0]
+                        .PixelSpacing[1]
+                    ),
+                ),
+                (
+                    (
+                        base_image.TotalPixelMatrixColumns /
+                        image.TotalPixelMatrixColumns
+                    ),
+                    (
+                        base_image.TotalPixelMatrixRows /
+                        image.TotalPixelMatrixRows
+                    ),
+                )
+            )
+            for image in metadata
+        ])
+        self._current_index = 0
+
+    def __getitem__(self, key: int) -> PyramidLevel:
+        return self._levels[key]
+
+    def __delitem__(self, key: int) -> None:
+        raise AttributeError('Cannot delete pyramid level.')
+
+    def __setitem__(self, key: int, value: PyramidLevel) -> None:
+        raise AttributeError('Cannot set pyramid level.')
+
+    def __iter__(self) -> Iterator[PyramidLevel]:
+        return self
+
+    def __next__(self) -> PyramidLevel:
+        key = self._current_index
+        if key < len(self._levels):
+            self._current_index += 1
+        else:
+            self._current_index = 0
+            raise StopIteration
+        return self[key]
+
+    def __len__(self) -> int:
+        return len(self._levels)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, self.__class__):
+            return False
+        if len(self) != len(other):
+            return False
+        for i in range(len(self)):
+            level = self[i]
+            other_level = other[i]
+            if not all([
+                eq(
+                    level.total_pixel_matrix_dimensions,
+                    other_level.total_pixel_matrix_dimensions
+                ),
+                eq(
+                    level.imaged_volume_dimensions,
+                    other_level.imaged_volume_dimensions
+                ),
+                eq(
+                    level.pixel_spacing,
+                    other_level.pixel_spacing
+                ),
+                eq(
+                    level.downsampling_factors,
+                    other_level.downsampling_factors
+                ),
+            ]):
+                return False
+        return True

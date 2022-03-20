@@ -110,6 +110,7 @@ def generate_test_images(
                     transfer_syntax_uid=JPEGBaseline8Bit
                 ),
             )
+            image_position = (0.0, 0.0, 0.0)
             for j, kwargs in enumerate(image_kwargs):
                 image = VLWholeSlideMicroscopyImage(
                     study_instance_uid=study_instance_uid,
@@ -119,7 +120,7 @@ def generate_test_images(
                     instance_number=j + 1,
                     extended_depth_of_field=False,
                     # TODO: image position needs to be slightly adjusted
-                    image_position=(0.0, 0.0, 0.0),
+                    image_position=image_position,
                     image_orientation=(0.0, 1.0, 0.0, 1.0, 0.0, 0.0),
                     dimension_organization_type=dimension_organization_type,
                     frame_of_reference_uid=frame_of_reference_uid,
