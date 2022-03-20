@@ -1,4 +1,4 @@
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple, Union
 
 import highdicom as hd
 import numpy as np
@@ -9,7 +9,7 @@ from dicomslide.utils import is_tiled_image
 
 def disassemble_total_pixel_matrix(
     total_pixel_matrix: np.ndarray,
-    tile_positions: Sequence[Tuple[int, int]],
+    tile_positions: Union[Sequence[Tuple[int, int]], np.ndarray],
     rows: int,
     columns: int,
 ) -> np.ndarray:
@@ -19,8 +19,8 @@ def disassemble_total_pixel_matrix(
     ----------
     total_pixel_matrix: numpy.ndarray
         Total pixel matrix
-    tile_positions: Sequence[Tuple[int, int]]
-        Column, Row position of each tile relative to the slide
+    tile_positions: Union[Sequence[Tuple[int, int]], numpy.ndarray]
+        (column, row) position of each tile in the total pixel matrix
     rows: int
         Number of rows per tile
     columns: int
@@ -33,6 +33,7 @@ def disassemble_total_pixel_matrix(
 
     """
     tiles = []
+    tile_shape: Tuple[int, ...]
     if total_pixel_matrix.ndim == 3:
         tile_shape = (rows, columns, total_pixel_matrix.shape[-1])
     elif total_pixel_matrix.ndim == 2:
@@ -59,7 +60,7 @@ def disassemble_total_pixel_matrix(
 
 def assemble_total_pixel_matrix(
     tiles: Sequence[np.ndarray],
-    tile_positions: Sequence[Tuple[int, int]],
+    tile_positions: Union[Sequence[Tuple[int, int]], np.ndarray],
     total_pixel_matrix_rows: int,
     total_pixel_matrix_columns: int,
 ) -> np.ndarray:
@@ -69,8 +70,8 @@ def assemble_total_pixel_matrix(
     ----------
     tiles: Sequence[numpy.ndarray]
         Individual image tiles
-    tile_positions: Sequence[Tuple[int, int]]
-        Column, Row position of each tile relative to the slide
+    tile_positions: Union[Sequence[Tuple[int, int]], numpy.ndarray]
+        (column, row) position of each tile in the total pixel matrix
     total_pixel_matrix_rows: int
         Number of total rows
     total_pixel_matrix_columns: int

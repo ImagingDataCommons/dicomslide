@@ -1,8 +1,8 @@
-import collections
 import itertools
 import logging
+from collections import defaultdict, OrderedDict
 from hashlib import sha256
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import highdicom as hd
 import numpy as np
@@ -86,7 +86,6 @@ class Slide:
         if len(image_metadata) == 0:
             raise ValueError('Argument "image_metadata" cannot be empty.')
         ref_image = image_metadata[0]
-        self._images = []
         for i, metadata in enumerate(image_metadata):
             if not isinstance(metadata, Dataset):
                 raise TypeError(
@@ -111,7 +110,7 @@ class Slide:
                     'Container Identifier.'
                 )
 
-        volume_images_lut = collections.defaultdict(list)
+        volume_images_lut = defaultdict(list)
         label_images = []
         overview_images = []
         for metadata in image_metadata:
@@ -154,15 +153,15 @@ class Slide:
 
         self._number_of_optical_paths = len(unique_optical_path_identifiers)
         self._number_of_focal_planes = len(unique_focal_plane_offsets)
-        self._optical_path_identifier_lut = collections.OrderedDict({
+        self._optical_path_identifier_lut: Mapping[int, str] = OrderedDict({
             i + 1: optical_path_id
             for i, optical_path_id in enumerate(unique_optical_path_identifiers)
         })
-        self._focal_plane_offset_lut = collections.OrderedDict({
+        self._focal_plane_offset_lut: Mapping[int, float] = OrderedDict({
             i + 1: focal_plane_offset
             for i, focal_plane_offset in enumerate(unique_focal_plane_offsets)
         })
-        self._volume_images = {}
+        self._volume_images: Dict[Tuple[int, int], Tuple[TiledImage, ...]] = {}
         encoded_image_metadata = []
         for optical_path_index in self._optical_path_identifier_lut:
             optical_path_id = self._optical_path_identifier_lut[
@@ -177,8 +176,8 @@ class Slide:
                     key=lambda image: get_image_size(image.metadata),
                     reverse=True
                 )
-                key = optical_path_index, focal_plane_index
-                self._volume_images[key] = tuple(volume_images)
+                volume_image_key = (optical_path_index, focal_plane_index)
+                self._volume_images[volume_image_key] = tuple(volume_images)
                 encoded_image_metadata.extend([
                     encode_dataset(image.metadata)
                     for images in volume_images
@@ -229,14 +228,14 @@ class Slide:
         # data to avoid having to retrieve the potentially large pixel data.
         self._quickhash = sha256(b''.join(encoded_image_metadata)).hexdigest()
 
-    def __hash__(self) -> str:
+    def __hash__(self) -> int:
         return hash(self._quickhash)
 
     def get_volume_images(
         self,
         optical_path_index: int = 1,
         focal_plane_index: int = 1
-    ) -> Tuple[TiledImage]:
+    ) -> Tuple[TiledImage, ...]:
         """Get VOLUME or THUMBNAIL images for an optical path and focal plane.
 
         Parameters
@@ -252,7 +251,7 @@ class Slide:
 
         Returns
         -------
-        Tuple[dicomslide.TiledImage]
+        Tuple[dicomslide.TiledImage, ...]
             Images sorted by size in descending order
 
         """
@@ -266,13 +265,13 @@ class Slide:
             )
 
     @property
-    def label_images(self) -> Tuple[TiledImage]:
-        """Tuple[dicomslide.TiledImage]: LABEL images of the slide"""
+    def label_images(self) -> Tuple[TiledImage, ...]:
+        """Tuple[dicomslide.TiledImage, ...]: LABEL images of the slide"""
         return self._label_images
 
     @property
-    def overview_images(self) -> Tuple[TiledImage]:
-        """Tuple[dicomslide.TiledImage]: OVERVIEW images of the slide"""
+    def overview_images(self) -> Tuple[TiledImage, ...]:
+        """Tuple[dicomslide.TiledImage, ...]: OVERVIEW images of the slide"""
         return self._overview_images
 
     @property
@@ -358,30 +357,39 @@ class Slide:
         return len(self._pyramid)
 
     @property
-    def total_pixel_matrix_dimensions(self) -> Tuple[Tuple[int, int]]:
-        """Tuple[Tuple[int, int]]: Number of columns and rows in the total
+    def total_pixel_matrix_dimensions(self) -> Tuple[Tuple[int, int], ...]:
+        """Tuple[Tuple[int, int], ...]: Number of columns and rows in the total
         pixel matrix for images at each pyramid level
 
         """
-        return tuple([level['image_dimensions'] for level in self._pyramid])
+        return tuple([
+            (
+                int(level['image_dimensions'][0]),
+                int(level['image_dimensions'][1]),
+            )
+            for level in self._pyramid]
+        )
 
     @property
-    def pixel_spacings(self) -> Tuple[Tuple[float, float]]:
-        """Tuple[Tuple[float, float]]: Distance between neighboring pixels
+    def pixel_spacings(self) -> Tuple[Tuple[float, float], ...]:
+        """Tuple[Tuple[float, float], ...]: Distance between neighboring pixels
         along the row (left to right) and column (top to bottom) directions
 
         """
-        return tuple([level['pixel_spacing'] for level in self._pyramid])
+        return tuple([
+            (
+                float(level['pixel_spacing'][0]),
+                float(level['pixel_spacing'][1]),
+            )
+            for level in self._pyramid
+        ])
 
     @property
-    def imaged_volume_dimensions(self) -> Tuple[Tuple[float, float, float]]:
-        """Tuple[Tuple[float, float, float]]: Width, height, and depth of the
-        imaged volume at each pyramid level in millimeter or micrometer unit.
-
-        Note
-        ----
-        The width and height of the imaged volume have millimeter unit but the
-        depth of the imaged volume has micrometer unit.
+    def imaged_volume_dimensions(
+        self
+    ) -> Tuple[Tuple[float, float, float], ...]:
+        """Tuple[Tuple[float, float, float], ...]: Width, height, and depth of
+        the imaged volume at each pyramid level in millimeter unit.
 
         Note
         ----
@@ -390,10 +398,17 @@ class Slide:
         (e.g., rounding errors incurred during image resampling).
 
         """
-        return tuple([level['volume_dimensions'] for level in self._pyramid])
+        return tuple([
+            (
+                float(level['volume_dimensions'][0]),
+                float(level['volume_dimensions'][1]),
+                float(level['volume_dimensions'][2]),
+            )
+            for level in self._pyramid
+        ])
 
     @property
-    def downsampling_factors(self) -> Tuple[float]:
+    def downsampling_factors(self) -> Tuple[float, ...]:
         """Tuple[float]: Downsampling factors of images at each pyramid level
         relative to the base level
 
@@ -542,8 +557,8 @@ class Slide:
             raise IndexError(f'Slide does not have level {level}.')
 
         focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
-        image_orientation = image.ImageOrientationSlide
-        image_origin = image.TotalPixelMatrixOriginSequence[0]
+        image_orientation = image.metadata.ImageOrientationSlide
+        image_origin = image.metadata.TotalPixelMatrixOriginSequence[0]
         image_position = (
             float(image_origin.XOffsetInSlideCoordinateSystem),
             float(image_origin.YOffsetInSlideCoordinateSystem),
@@ -615,8 +630,9 @@ class Slide:
 def find_slides(
     client: DICOMClient,
     study_instance_uid: Optional[str] = None,
-    max_frame_cache_size: int = 6
-) -> Dict[Tuple[str, str], Slide]:
+    max_frame_cache_size: int = 6,
+    fail_on_error: bool = True
+) -> List[Slide]:
     """Find slides.
 
     Parameters
@@ -628,6 +644,9 @@ def find_slides(
     max_frame_cache_size: int, optional
         Maximum number of frames that should be cached per image instance to
         avoid repeated retrieval requests
+    fail_on_error: bool, optional
+        Wether the function should raise an exception in case an error occurs.
+        If ``False``, slides will be skipped.
 
     Returns
     -------
@@ -636,7 +655,7 @@ def find_slides(
 
     """
     # Find VL Whole Slide Microscopy Image instances
-    search_filters = {
+    search_filters: Dict[str, str] = {
         'SOPClassUID': VLWholeSlideMicroscopyImageStorage
     }
     if study_instance_uid is not None:
@@ -648,7 +667,11 @@ def find_slides(
 
     # Retrieve metadata of each VL Whole Slide Microscopy Image instance
 
-    def bulk_data_uri_handler(tag: str, vr: str, uri: str) -> bytes:
+    def bulk_data_uri_handler(
+        tag: str,
+        vr: str,
+        uri: str
+    ) -> Union[bytes, None]:
         if tag != '00282000':
             return None
         uri = uri.replace(
@@ -672,7 +695,7 @@ def find_slides(
 
     # Group images by Study Instance UID, Container Identifier, and
     # Frame of Reference UID.
-    lut = collections.defaultdict(list)
+    lut = defaultdict(list)
     for metadata in instance_metadata:
         try:
             study_instance_uid = metadata.StudyInstanceUID
@@ -696,16 +719,18 @@ def find_slides(
                 max_frame_cache_size=max_frame_cache_size
             )
         except Exception as error:
-            ref_image = image_metadata[0]
-            logger.warning(
-                'failed to create slides for images of study '
-                f'"{ref_image.StudyInstanceUID}" for container '
-                f'"{ref_image.ContainerIdentifier}" in frame of reference '
-                f'"{ref_image.FrameOfReferenceUID}" due to the following '
-                f'error: {error}'
-            )
-            raise
-            continue
+            if fail_on_error:
+                raise
+            else:
+                ref_image = image_metadata[0]
+                logger.warning(
+                    'failed to create slides for images of study '
+                    f'"{ref_image.StudyInstanceUID}" for container '
+                    f'"{ref_image.ContainerIdentifier}" in frame of reference '
+                    f'"{ref_image.FrameOfReferenceUID}" due to the following '
+                    f'error: {error}'
+                )
+                continue
         found_slides.append(slide)
 
     return found_slides

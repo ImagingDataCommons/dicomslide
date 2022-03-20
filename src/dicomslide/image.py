@@ -107,7 +107,7 @@ class TiledImage:
         encoded_dataset = encode_dataset(self._metadata)
         self._quickhash = sha256(encoded_dataset).hexdigest()
 
-    def __hash__(self) -> str:
+    def __hash__(self) -> int:
         return hash(self._quickhash)
 
     @property

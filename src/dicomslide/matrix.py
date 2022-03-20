@@ -1,6 +1,6 @@
-import collections
 import itertools
 import logging
+from collections import OrderedDict
 from typing import (
     Dict,
     Sequence,
@@ -195,7 +195,7 @@ class TotalPixelMatrix:
         self._sorted_frame_indices = self._frame_indices[tile_sort_index]
         self._current_index = 0
 
-        self._cache = collections.OrderedDict()
+        self._cache: OrderedDict[int, np.ndarray] = OrderedDict()
         if max_frame_cache_size < 0:
             raise ValueError(
                 'Cache size must be at an unsigned integer value.'
@@ -311,11 +311,11 @@ class TotalPixelMatrix:
                 if self._metadata.SamplesPerPixel == 1 and array.ndim == 2:
                     array = array[..., np.newaxis]
                 index = number - 1
-                self._cache[index] = (array, number)
+                self._cache[index] = array
 
         # Get cached frames
         pixel_array_mapping = {
-            index: self._cache[index][0]
+            index: self._cache[index]
             for index in frame_indices
         }
 
@@ -323,8 +323,7 @@ class TotalPixelMatrix:
         cache_diff = len(self._cache) - self._max_frame_cache_size
         if cache_diff > 0:
             for _ in range(cache_diff):
-                array, number = self._cache.popitem(last=False)
-                logger.debug(f'removed frame {number} from cache')
+                self._cache.popitem(last=False)
 
         return pixel_array_mapping
 
@@ -460,6 +459,7 @@ class TotalPixelMatrix:
                 (row_start_tile_fraction - row_start_tile_index) * self._rows
             )
         )
+        region_row_stop: Union[int, None]
         region_row_stop = -1 * int(
             np.ceil(
                 (row_stop_tile_index - row_stop_tile_fraction) * self._rows
@@ -499,6 +499,7 @@ class TotalPixelMatrix:
                 (col_start_tile_fraction - col_start_tile_index) * self._cols
             )
         )
+        region_col_stop: Union[int, None]
         region_col_stop = -1 * int(
             np.ceil(
                 (col_stop_tile_index - col_stop_tile_fraction) * self._cols
@@ -553,7 +554,7 @@ class TotalPixelMatrix:
         frame_indices = [key for key in frame_position_mapping.keys()]
         frame_array_mapping = self._retrieve_and_decode_frames(frame_indices)
         tiles = [frame_array_mapping[i] for i in frame_indices]
-        tile_positions = np.array([
+        tile_positions: np.typing.NDArray[np.uint32] = np.array([
             frame_position_mapping[i] for i in frame_indices
         ])
         if tile_positions.shape[0] > 0:
@@ -580,11 +581,14 @@ class TotalPixelMatrix:
             if len(row_tile_range) == 0:
                 shape.append(0)
             else:
-                if region_row_stop < 0:
-                    adjusted_region_row_stop = np.sum([
-                        self._metadata.TotalPixelMatrixRows,
-                        region_row_stop
-                    ])
+                if region_row_stop is not None:
+                    if region_row_stop < 0:
+                        adjusted_region_row_stop = np.sum([
+                            self._metadata.TotalPixelMatrixRows,
+                            region_row_stop
+                        ])
+                    else:
+                        adjusted_region_row_stop = region_row_stop
                 else:
                     adjusted_region_row_stop = region_row_stop
                 region_row_diff = adjusted_region_row_stop - region_row_start
@@ -593,11 +597,14 @@ class TotalPixelMatrix:
             if len(col_tile_range) == 0:
                 shape.append(0)
             else:
-                if region_col_stop < 0:
-                    adjusted_region_col_stop = np.sum([
-                        self._metadata.TotalPixelMatrixColumns,
-                        region_col_stop
-                    ])
+                if region_col_stop is not None:
+                    if region_col_stop < 0:
+                        adjusted_region_col_stop = np.sum([
+                            self._metadata.TotalPixelMatrixColumns,
+                            region_col_stop
+                        ])
+                    else:
+                        adjusted_region_col_stop = region_col_stop
                 else:
                     adjusted_region_col_stop = region_col_stop
                 region_col_diff = adjusted_region_col_stop - region_col_start
@@ -645,10 +652,7 @@ class TotalPixelMatrix:
             else:
                 raise TypeError('Wrong tile index.')
         elif isinstance(key, slice):
-            if isinstance(key[0], int):
-                indices.extend(list(range(key[0].start, key[1].stop)))
-            else:
-                raise TypeError('Wrong tile index.')
+            indices.extend(list(range(key.start, key.stop)))
         else:
             raise TypeError('Wrong tile index.')
 
@@ -684,7 +688,7 @@ class TotalPixelMatrix:
                     '(top to bottom), the row direction (left to right), and '
                     'the sample direction (R, G, B in case of a color image).'
                 )
-            return self._read_region(key)
+            return self._read_region(key)  # type: ignore
         else:
             if not isinstance(key, (int, Sequence, slice)):
                 raise TypeError(error_message)

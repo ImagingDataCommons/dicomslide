@@ -77,7 +77,7 @@ def sort_images_by_resolution(
 
     """
     def get_image_pixel_spacing_rows(image: Dataset) -> float:
-        return get_image_pixel_spacing[0]
+        return get_image_pixel_spacing(image)[0]
 
     return sorted(collection, key=get_image_pixel_spacing_rows, reverse=True)
 
@@ -168,11 +168,15 @@ def select_image_at_magnification(
     except KeyError:
         raise ValueError(
             'Argument "magnification" should be one of the following: '
-            '"{}"'.format('", "'.join(magnification_to_pixel_spacing.keys()))
+            '"{}"'.format('", "'.join([
+                str(key) for key in magnification_to_pixel_spacing.keys()
+            ]))
         )
 
     return select_image_at_pixel_spacing(
-        collection=collection, pixel_spacing=pixel_spacing, tolerance=tolerance
+        collection=collection,
+        pixel_spacing=(pixel_spacing, pixel_spacing),
+        tolerance=tolerance
     )
 
 

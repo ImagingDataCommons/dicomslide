@@ -26,9 +26,9 @@ jobs:
         pip install -r requirements_test.txt
         pip install .
     - name: Lint with flake8
-      run: |
-        flake8 --exclude='bin,build,.eggs'
+      run: flake8 --exclude='bin,build,.eggs'
+    - name: Type check with mypy
+      run: mypy src
     - name: Test with pytest
-      run: |
-        pytest --cov=dicomslide --cov-fail-under=60 tests
+      run: pytest --cov=dicomslide --cov-fail-under=65 tests
 

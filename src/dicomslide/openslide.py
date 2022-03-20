@@ -63,12 +63,12 @@ class OpenSlide:
         return self._slide.total_pixel_matrix_dimensions[0]
 
     @property
-    def level_dimensions(self) -> Tuple[Tuple[int, int]]:
+    def level_dimensions(self) -> Tuple[Tuple[int, int], ...]:
         """Tuple[Tuple[int, int]]: Width and height of images at each level"""
         return self._slide.total_pixel_matrix_dimensions
 
     @property
-    def level_downsamples(self) -> Tuple[float]:
+    def level_downsamples(self) -> Tuple[float, ...]:
         """Tuple[float]: Downsampling factor of images at each level with
         respect to the base level 0
         """
