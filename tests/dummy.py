@@ -193,8 +193,8 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
         if number_of_optical_paths > len(wavelengths):
             raise ValueError("Unsupported number of optical paths.")
         if (
-            number_of_optical_paths > 1
-            and samples_per_pixel == 3
+            number_of_optical_paths > 1 and
+            samples_per_pixel == 3
         ):
             raise ValueError(
                 "Unsupported number of optical paths for "

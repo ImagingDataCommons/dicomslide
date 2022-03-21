@@ -40,7 +40,8 @@ setuptools.setup(
     package_dir={'': 'src'},
     python_requires='>=3.6',
     install_requires=[
+        'dicomweb_client>=0.55.1',
         'highdicom>=0.15.2',
-        'dicomweb_client>=0.55.1'
+        'scipy>=1.0',
     ],
 )

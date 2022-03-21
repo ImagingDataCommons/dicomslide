@@ -18,6 +18,7 @@ import numpy as np
 from dicomweb_client import DICOMClient
 from pydicom import Dataset
 from pydicom._storage_sopclass_uids import VLWholeSlideMicroscopyImageStorage
+from scipy.ndimage import rotate
 
 from dicomslide.image import TiledImage
 from dicomslide.pyramid import get_image_size, Pyramid
@@ -659,10 +660,16 @@ class Slide:
                 slide_coordinates[0],
                 slide_coordinates[1],
                 focal_plane_offset / 10**3,
+            ],
+            [
+                slide_coordinates[0] + size[0],
+                slide_coordinates[1] + size[1],
+                focal_plane_offset / 10**3,
             ]
         ])
         pixel_indices = transformer(coordinates)
-        col_index, row_index, _ = pixel_indices[0, :]
+        col_index = np.min(pixel_indices[:, 0])
+        row_index = np.min(pixel_indices[:, 1])
 
         region_cols = int(np.ceil(size[0] / pixel_spacing[0]))
         region_rows = int(np.ceil(size[1] / pixel_spacing[1]))
@@ -698,14 +705,37 @@ class Slide:
             region_col_start:region_col_stop
         ] = matrix[row_start:row_stop, col_start:col_stop, :]
 
-        return region
+        angle = np.arctan2(-image_orientation[3], image_orientation[0])
+        degrees = angle * 180.0 / np.pi
+        # We want to align the image with the slide coordinate system such that
+        # the slide is oriented horizontally (rotated by 90 degrees) with the
+        # label on the right hand side:
+        #                 Y
+        #    o--------------------|--------|
+        #    |                    |        |
+        #  X |                    |        |
+        #    |                    |        |
+        #    |--------------------|--------|
+        # This orientation ensures that ROI annotations (SCOORD3D) and the
+        # source image regions are spatially aligned.
+        degrees += 90.0
+
+        # Images are expected to be rotated in plane parallel to the slide
+        # surface and the rows and columns of the image are expected to be
+        # parallel to the axes of the slide.
+        if degrees not in (0.0, 90.0, 180.0, 270.0):
+            logger.warning(
+                'encountered unexpected image orientation: '
+                f'{image_orientation}'
+            )
+
+        return rotate(region, angle=degrees)
 
     def get_slide_region_for_annotation(
         self,
         annotation: hd.sr.Scoord3DContentItem,
         level: int,
-        optical_path_index: int = 1,
-        padding: int = 0
+        optical_path_index: int = 1
     ) -> np.ndarray:
         """Get slide region defined by a graphic annotation.
 
@@ -719,9 +749,6 @@ class Slide:
         optical_path_index: int, optional
             One-based index into optical paths along the direction defined by
             Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
-        padding: int, optional
-            Number of pixels that should be padded to the image of the slide
-            region
 
         Returns
         -------
@@ -778,19 +805,10 @@ class Slide:
         # as any of the available focal planes.
         focal_plane_index = self.get_focal_plane_index(focal_plane_offset)
 
-        pixel_spacing = self.pixel_spacings[level]
-        padding_millimeter = padding / pixel_spacing
-
         return self.get_slide_region(
-            slide_coordinates=(
-                slide_coordinates[0] - padding_millimeter,
-                slide_coordinates[1] - padding_millimeter,
-            ),
+            slide_coordinates=slide_coordinates,
             level=level,
-            size=(
-                size[0] + padding_millimeter * 2,
-                size[1] + padding_millimeter * 2,
-            ),
+            size=size,
             optical_path_index=optical_path_index,
             focal_plane_index=focal_plane_index
         )

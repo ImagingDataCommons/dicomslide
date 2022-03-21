@@ -1,11 +1,13 @@
 import itertools
 import logging
 from hashlib import sha256
+from typing import Optional
 
 import highdicom as hd
 import numpy as np
 from dicomweb_client import DICOMClient
 from pydicom.dataset import Dataset
+from pydicom.sr.coding import Code
 
 from dicomslide.matrix import TotalPixelMatrix
 from dicomslide.tile import compute_frame_positions
@@ -119,6 +121,25 @@ class TiledImage:
     def num_optical_paths(self) -> int:
         """int: Number of optical paths"""
         return self._number_of_optical_paths
+
+    # def find_optical_path(
+    #     self,
+    #     illumination_wavelength: Optional[float] = None,
+    #     stain: Optional[Code] = None
+    # ) -> int:
+    #     if illumination_wavelength is None and stain is None:
+    #         raise TypeError(
+    #             'At least one of the following arguments must be provided: '
+    #             '"illumination_wavelength", "stain".'
+    #         )
+    #     identifiers = set()
+    #     for item in self._metadata.OpticalPathSequence:
+    #         if illumination_wavelength is not None:
+    #             value = getattr(item, 'IlluminationWaveLength', None)
+    #             if value is not None and value == illumination_wavelength:
+    #                 identifiers.add(str(item.OpticalPathIdentifier))
+    #         else:
+    #             identifiers.add(str(item.OpticalPathIdentifier))
 
     def get_optical_path_index(self, optical_path_identifier: str) -> int:
         """Get index of an optical path.
