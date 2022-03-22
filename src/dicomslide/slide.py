@@ -620,21 +620,25 @@ class Slide:
         except IndexError:
             raise IndexError(f'Slide does not have level {level}.')
 
-        focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
+        pixel_indices = np.array([
+            image.get_pixel_position(
+                slide_position=slide_coordinates,
+                focal_plane_index=focal_plane_index
+            ),
+            image.get_pixel_position(
+                slide_position=(
+                    slide_coordinates[0] + size[0],
+                    slide_coordinates[1] + size[1],
+                ),
+                focal_plane_index=focal_plane_index
+            )
+        ])
+        col_index = np.min(pixel_indices[:, 0]) - 1
+        row_index = np.min(pixel_indices[:, 1]) - 1
 
-        image_orientation = image.metadata.ImageOrientationSlide
-        image_origin = image.metadata.TotalPixelMatrixOriginSequence[0]
-        image_position = (
-            float(image_origin.XOffsetInSlideCoordinateSystem),
-            float(image_origin.YOffsetInSlideCoordinateSystem),
-            focal_plane_offset / 10**3,
-        )
         pixel_spacing = self.pixel_spacings[level]
-        transformer = hd.spatial.ReferenceToPixelTransformer(
-            image_orientation=image_orientation,
-            image_position=image_position,
-            pixel_spacing=pixel_spacing,
-        )
+        region_cols = int(np.ceil(size[0] / pixel_spacing[0]))
+        region_rows = int(np.ceil(size[1] / pixel_spacing[1]))
 
         # Each image may have one or more optical paths or focal planes and the
         # image-level indices differ from the slide-level indices.
@@ -644,6 +648,7 @@ class Slide:
                 focal_plane_index=1
             )
         else:
+            focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
             image_optical_path_index = image.get_optical_path_index(
                 self.get_optical_path_identifier(optical_path_index)
             )
@@ -654,25 +659,6 @@ class Slide:
                 optical_path_index=image_optical_path_index,
                 focal_plane_index=image_focal_plane_index
             )
-
-        coordinates = np.array([
-            [
-                slide_coordinates[0],
-                slide_coordinates[1],
-                focal_plane_offset / 10**3,
-            ],
-            [
-                slide_coordinates[0] + size[0],
-                slide_coordinates[1] + size[1],
-                focal_plane_offset / 10**3,
-            ]
-        ])
-        pixel_indices = transformer(coordinates)
-        col_index = np.min(pixel_indices[:, 0])
-        row_index = np.min(pixel_indices[:, 1])
-
-        region_cols = int(np.ceil(size[0] / pixel_spacing[0]))
-        region_rows = int(np.ceil(size[1] / pixel_spacing[1]))
 
         region_col_start = 0
         if col_index < 0:
@@ -705,29 +691,7 @@ class Slide:
             region_col_start:region_col_stop
         ] = matrix[row_start:row_stop, col_start:col_stop, :]
 
-        angle = np.arctan2(-image_orientation[3], image_orientation[0])
-        degrees = angle * 180.0 / np.pi
-        # We want to align the image with the slide coordinate system such that
-        # the slide is oriented horizontally (rotated by 90 degrees) with the
-        # label on the right hand side:
-        #                 Y
-        #    o--------------------|--------|
-        #    |                    |        |
-        #  X |                    |        |
-        #    |                    |        |
-        #    |--------------------|--------|
-        # This orientation ensures that ROI annotations (SCOORD3D) and the
-        # source image regions are spatially aligned.
-        degrees += 90.0
-
-        # Images are expected to be rotated in plane parallel to the slide
-        # surface and the rows and columns of the image are expected to be
-        # parallel to the axes of the slide.
-        if degrees not in (0.0, 90.0, 180.0, 270.0):
-            logger.warning(
-                'encountered unexpected image orientation: '
-                f'{image_orientation}'
-            )
+        degrees = image.get_rotation()
 
         return rotate(region, angle=degrees)
 

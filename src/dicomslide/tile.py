@@ -71,7 +71,7 @@ def assemble_total_pixel_matrix(
     tiles: Sequence[numpy.ndarray]
         Individual image tiles
     tile_positions: Union[Sequence[Tuple[int, int]], numpy.ndarray]
-        (column, row) position of each tile in the total pixel matrix
+        One-based (column, row) position of each tile in the total pixel matrix
     total_pixel_matrix_rows: int
         Number of total rows
     total_pixel_matrix_columns: int

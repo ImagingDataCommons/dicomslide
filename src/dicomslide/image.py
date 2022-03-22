@@ -1,13 +1,12 @@
 import itertools
 import logging
 from hashlib import sha256
-from typing import Optional
+from typing import Tuple
 
 import highdicom as hd
 import numpy as np
 from dicomweb_client import DICOMClient
 from pydicom.dataset import Dataset
-from pydicom.sr.coding import Code
 
 from dicomslide.matrix import TotalPixelMatrix
 from dicomslide.tile import compute_frame_positions
@@ -109,6 +108,8 @@ class TiledImage:
         encoded_dataset = encode_dataset(self._metadata)
         self._quickhash = sha256(encoded_dataset).hexdigest()
 
+        self._ref2pix_transformer = None
+
     def __hash__(self) -> int:
         return hash(self._quickhash)
 
@@ -122,24 +123,112 @@ class TiledImage:
         """int: Number of optical paths"""
         return self._number_of_optical_paths
 
-    # def find_optical_path(
-    #     self,
-    #     illumination_wavelength: Optional[float] = None,
-    #     stain: Optional[Code] = None
-    # ) -> int:
-    #     if illumination_wavelength is None and stain is None:
-    #         raise TypeError(
-    #             'At least one of the following arguments must be provided: '
-    #             '"illumination_wavelength", "stain".'
-    #         )
-    #     identifiers = set()
-    #     for item in self._metadata.OpticalPathSequence:
-    #         if illumination_wavelength is not None:
-    #             value = getattr(item, 'IlluminationWaveLength', None)
-    #             if value is not None and value == illumination_wavelength:
-    #                 identifiers.add(str(item.OpticalPathIdentifier))
-    #         else:
-    #             identifiers.add(str(item.OpticalPathIdentifier))
+    def get_pixel_position(
+        self,
+        slide_position: Tuple[float, float],
+        focal_plane_index: int
+    ) -> Tuple[int, int]:
+        """Get position in total pixel matrix for a given position on the slide.
+
+        Parameters
+        ----------
+        slide_position: Tuple[float, float]
+            Zero-based (x, y) offset in the slide coordinate system
+        focal_plane_index: int
+            One-based index into focal planes along depth direction from the
+            glass slide towards the coverslip in the slide coordinate system
+            specified by the Z Offset in Slide Coordinate System attribute.
+            Values must be in the range [1, Total Pixel Matrix Focal Planes]
+
+        Returns
+        -------
+        Tuple[int, int]
+            One-based (column, row) position in the total pixel matrix
+
+        Note
+        ----
+        Pixel position may be zero or negativ or extend beyond the size of the
+        total pixel matrix if `slide_position` does fall into a region on the
+        slide that was not imaged.
+
+        """
+        focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
+        if self._ref2pix_transformer is None:
+            image_orientation = self.metadata.ImageOrientationSlide
+            image_origin = self.metadata.TotalPixelMatrixOriginSequence[0]
+            image_position = (
+                float(image_origin.XOffsetInSlideCoordinateSystem),
+                float(image_origin.YOffsetInSlideCoordinateSystem),
+                focal_plane_offset / 10**3,
+            )
+            pixel_spacing = (
+                float(
+                    self
+                    .metadata
+                    .SharedFunctionalGroupsSequence[0]
+                    .PixelMeasuresSequence[0]
+                    .PixelSpacing[0]
+                ),
+                float(
+                    self
+                    .metadata
+                    .SharedFunctionalGroupsSequence[0]
+                    .PixelMeasuresSequence[0]
+                    .PixelSpacing[1]
+                ),
+            )
+            self._ref2pix_transformer = hd.spatial.ReferenceToPixelTransformer(
+                image_orientation=image_orientation,
+                image_position=image_position,
+                pixel_spacing=pixel_spacing,
+            )
+        slide_coordinates = np.array([
+            [slide_position[0], slide_position[1], focal_plane_offset / 10**3]
+        ])
+        pixel_indices = self._ref2pix_transformer(slide_coordinates)
+        return (
+            int(pixel_indices[0, 0]) + 1,
+            int(pixel_indices[0, 1]) + 1,
+        )
+
+    def get_rotation(self) -> float:
+        """Get angle to rotate image such that it aligns with slide.
+
+        We want to align the image with the slide coordinate system such that
+        the slide is oriented horizontally (rotated by 90 degrees) with the
+        label on the right hand side::
+
+                                Y
+                   o--------------------|--------|
+                   |                    |        |
+                 X |                    |        |
+                   |                    |        |
+                   |--------------------|--------|
+
+        This orientation ensures that spatial coordinates of graphic region of
+        interest (ROI) annotations and are aligned with the source image region.
+
+        Returns
+        -------
+        float
+            Counterclockwise angle of rotation
+
+        """
+        image_orientation = self.metadata.ImageOrientationSlide
+        radians = np.arctan2(-image_orientation[3], image_orientation[0])
+        degrees = radians * 180.0 / np.pi
+        degrees -= 90.0
+
+        # Images are expected to be rotated in plane parallel to the slide
+        # surface and the rows and columns of the image are expected to be
+        # parallel to the axes of the slide.
+        if degrees not in (0.0, -90.0, -180.0, -270.0):
+            logger.warning(
+                'encountered unexpected image orientation: '
+                f'{image_orientation}'
+            )
+
+        return degrees
 
     def get_optical_path_index(self, optical_path_identifier: str) -> int:
         """Get index of an optical path.
