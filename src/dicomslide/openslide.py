@@ -27,6 +27,19 @@ class OpenSlide:
 
     """Wrapper class that exposes data of a slide via the OpenSlide interface.
 
+    Note
+    ----
+    There are two major differences between the OpenSlide interface exposed by
+    this class and the interface exposed by :class:`dicomslide.Slide`::
+
+        1. The OpenSlide API returns images as :class:`PIL.Image.Image` objects,
+        while :class:`dicomslide.Slide` returns pixel arrays as
+        :class:`numpy.ndarray` objects.
+        2. The OpenSlide API specifies image dimensions and indices in
+        column-major order (following the Pillow convention), while
+        :class:`dicomslide.Slide` specifies array dimensions and indices in
+        row-major order (following the NumPy convention).
+
     """
 
     def __init__(self, slide: Slide):
@@ -60,12 +73,18 @@ class OpenSlide:
     @property
     def dimensions(self) -> Tuple[int, int]:
         """Tuple[int, int]: Width and height of images at base level 0"""
-        return self._slide.total_pixel_matrix_dimensions[0]
+        return (
+            self._slide.total_pixel_matrix_dimensions[0][1],
+            self._slide.total_pixel_matrix_dimensions[0][0],
+        )
 
     @property
     def level_dimensions(self) -> Tuple[Tuple[int, int], ...]:
         """Tuple[Tuple[int, int]]: Width and height of images at each level"""
-        return self._slide.total_pixel_matrix_dimensions
+        return tuple([
+            (dimensions[1], dimensions[0])
+            for dimensions in self._slide.total_pixel_matrix_dimensions
+        ])
 
     @property
     def level_downsamples(self) -> Tuple[float, ...]:
@@ -141,9 +160,9 @@ class OpenSlide:
 
         """
         pixel_array = self._slide.get_image_region(
-            offset=location,
+            offset=(location[1], location[0]),
             level=level,
-            size=size,
+            size=(size[1], size[0]),
             optical_path_index=0,
             focal_plane_index=0
         )

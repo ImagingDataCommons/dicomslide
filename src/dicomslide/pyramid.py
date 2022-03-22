@@ -354,8 +354,8 @@ class Pyramid:
         self._levels = tuple([
             PyramidLevel(
                 (
-                    image.TotalPixelMatrixColumns,
                     image.TotalPixelMatrixRows,
+                    image.TotalPixelMatrixColumns,
                 ),
                 (
                     float(image.ImagedVolumeWidth),
@@ -367,23 +367,23 @@ class Pyramid:
                         image
                         .SharedFunctionalGroupsSequence[0]
                         .PixelMeasuresSequence[0]
-                        .PixelSpacing[0]
+                        .PixelSpacing[1]
                     ),
                     float(
                         image
                         .SharedFunctionalGroupsSequence[0]
                         .PixelMeasuresSequence[0]
-                        .PixelSpacing[1]
+                        .PixelSpacing[0]
                     ),
                 ),
                 (
                     (
-                        base_image.TotalPixelMatrixColumns /
-                        image.TotalPixelMatrixColumns
-                    ),
-                    (
                         base_image.TotalPixelMatrixRows /
                         image.TotalPixelMatrixRows
+                    ),
+                    (
+                        base_image.TotalPixelMatrixColumns /
+                        image.TotalPixelMatrixColumns
                     ),
                 )
             )

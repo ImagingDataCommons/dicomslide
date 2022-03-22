@@ -183,12 +183,12 @@ class TotalPixelMatrix:
         )
         self._tile_positions = matrix_positions[frame_selection_index, :]
         self._tile_grid_indices = np.column_stack([
-            np.floor((self._tile_positions[:, 1]) / self._rows),
-            np.floor((self._tile_positions[:, 0]) / self._cols),
+            np.floor((self._tile_positions[:, 0]) / self._rows),
+            np.floor((self._tile_positions[:, 1]) / self._cols),
         ]).astype(int)
         tile_sort_index = np.lexsort([
-            self._tile_grid_indices[:, 1],
-            self._tile_grid_indices[:, 0]
+            self._tile_grid_indices[:, 0],
+            self._tile_grid_indices[:, 1]
         ])
         frame_indices = np.arange(0, int(self._metadata.NumberOfFrames))
         self._frame_indices = frame_indices[frame_selection_index]
@@ -543,11 +543,11 @@ class TotalPixelMatrix:
             frame_position_mapping[frame_index] = (
                 (
                     self._tile_positions[tile_index, 0] -
-                    (col_start_tile_index * self._cols)
+                    (row_start_tile_index * self._rows)
                 ),
                 (
                     self._tile_positions[tile_index, 1] -
-                    (row_start_tile_index * self._rows)
+                    (col_start_tile_index * self._cols)
                 ),
             )
 
@@ -562,10 +562,10 @@ class TotalPixelMatrix:
                 tiles=tiles,
                 tile_positions=tile_positions,
                 total_pixel_matrix_columns=int(
-                    np.max(tile_positions[:, 0]) + self._cols
+                    np.max(tile_positions[:, 1]) + self._cols
                 ),
                 total_pixel_matrix_rows=int(
-                    np.max(tile_positions[:, 1]) + self._rows
+                    np.max(tile_positions[:, 0]) + self._rows
                 )
             )
             region = extended_region[

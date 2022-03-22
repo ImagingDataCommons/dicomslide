@@ -172,8 +172,8 @@ def test_color_images(client, dimension_organization_type):
         assert len(volume_images) == expected_num_levels
         expected_dimensions = tuple([
             (
-                image.metadata.TotalPixelMatrixColumns,
                 image.metadata.TotalPixelMatrixRows,
+                image.metadata.TotalPixelMatrixColumns,
             )
             for image in volume_images
         ])
@@ -192,7 +192,7 @@ def test_color_images(client, dimension_organization_type):
             slide.get_image_region(
                 offset=(0, 0),
                 level=0,
-                size=(100, 52),
+                size=(52, 100),
                 optical_path_index=0,
                 focal_plane_index=0
             ),
@@ -200,9 +200,9 @@ def test_color_images(client, dimension_organization_type):
         )
         np.testing.assert_array_equal(
             slide.get_image_region(
-                offset=(10, 5),
+                offset=(5, 10),
                 level=2,
-                size=(37, 28),
+                size=(28, 37),
                 optical_path_index=0,
                 focal_plane_index=0
             ),
@@ -217,7 +217,7 @@ def test_color_images(client, dimension_organization_type):
                 optical_path_index=0,
                 focal_plane_index=0
             ),
-            np.ones((32, 63, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((63, 32, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
         np.testing.assert_array_equal(
             slide.get_slide_region(
@@ -227,13 +227,19 @@ def test_color_images(client, dimension_organization_type):
                 optical_path_index=0,
                 focal_plane_index=0
             ),
-            np.ones((8, 13, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
 
         openslide = OpenSlide(slide)
         assert openslide.level_count == expected_num_levels
-        assert openslide.dimensions == expected_dimensions[0]
-        assert openslide.level_dimensions == expected_dimensions
+        assert openslide.dimensions == (
+            expected_dimensions[0][1],
+            expected_dimensions[0][0],
+        )
+        assert openslide.level_dimensions == tuple([
+            (dimensions[1], dimensions[0])
+            for dimensions in expected_dimensions
+        ])
         assert openslide.level_downsamples == expected_downsampling_factors
         assert len(openslide.associated_images) == 2
         expected_mpp_x = slide.pixel_spacings[0][0] * 10**3
@@ -304,8 +310,8 @@ def test_grayscale_images(client):
                 assert len(volume_images) == expected_num_levels
                 assert slide.total_pixel_matrix_dimensions == tuple([
                     (
-                        image.metadata.TotalPixelMatrixColumns,
                         image.metadata.TotalPixelMatrixRows,
+                        image.metadata.TotalPixelMatrixColumns,
                     )
                     for image in volume_images
                 ])
@@ -323,7 +329,7 @@ def test_grayscale_images(client):
                     slide.get_image_region(
                         offset=(0, 0),
                         level=0,
-                        size=(100, 52),
+                        size=(52, 100),
                         optical_path_index=optical_path_index,
                         focal_plane_index=focal_plane_index
                     ),
@@ -334,9 +340,9 @@ def test_grayscale_images(client):
                 )
                 np.testing.assert_array_equal(
                     slide.get_image_region(
-                        offset=(10, 5),
+                        offset=(5, 10),
                         level=2,
-                        size=(37, 28),
+                        size=(28, 37),
                         optical_path_index=optical_path_index,
                         focal_plane_index=focal_plane_index
                     ),
@@ -355,7 +361,7 @@ def test_grayscale_images(client):
                         focal_plane_index=0
                     ),
                     np.zeros(
-                        (32, 63, expected_samples_per_pixel),
+                        (63, 32, expected_samples_per_pixel),
                         dtype=np.uint8
                     )
                 )
@@ -368,7 +374,7 @@ def test_grayscale_images(client):
                         focal_plane_index=1
                     ),
                     np.zeros(
-                        (8, 13, expected_samples_per_pixel),
+                        (13, 8, expected_samples_per_pixel),
                         dtype=np.uint8
                     )
                 )

@@ -165,7 +165,7 @@ class TiledImage:
         Returns
         -------
         Tuple[int, int]
-            Zero-based (column, row) position in the total pixel matrix
+            Zero-based (row, column) position in the total pixel matrix
 
         Note
         ----
@@ -209,26 +209,18 @@ class TiledImage:
         ])
         pixel_indices = self._ref2pix_transformer(slide_coordinates)
         return (
-            int(pixel_indices[0, 0]),
             int(pixel_indices[0, 1]),
+            int(pixel_indices[0, 0]),
         )
 
     def get_rotation(self) -> float:
         """Get angle to rotate image such that it aligns with slide.
 
         We want to align the image with the slide coordinate system such that
-        the slide is oriented horizontally (rotated by 90 degrees) with the
-        label on the right hand side::
-
-                                Y
-                   o--------------------|--------|
-                   |                    |        |
-                 X |                    |        |
-                   |                    |        |
-                   |--------------------|--------|
-
-        This orientation ensures that spatial coordinates of graphic region of
-        interest (ROI) annotations and are aligned with the source image region.
+        the axes of the total pixel matrix are aligned with the X and Y axes
+        of the slide coordinate system to ensure that spatial coordinates of
+        graphic region of interest (ROI) annotations and are aligned with the
+        source image region.
 
         Returns
         -------
@@ -238,16 +230,15 @@ class TiledImage:
         """
         image_orientation = self.metadata.ImageOrientationSlide
         radians = np.arctan2(-image_orientation[3], image_orientation[0])
-        degrees = radians * 180.0 / np.pi
-        degrees -= 90.0
+        degrees = -(radians * 180.0 / np.pi)
 
         # Images are expected to be rotated in plane parallel to the slide
         # surface and the rows and columns of the image are expected to be
         # parallel to the axes of the slide.
-        if degrees not in (0.0, -90.0, -180.0, -270.0):
+        if degrees not in (-0.0, -90.0, -180.0, -270.0):
             logger.warning(
                 'encountered unexpected image orientation: '
-                f'{image_orientation}'
+                f'{image_orientation}: {degrees}'
             )
 
         return degrees

@@ -20,7 +20,7 @@ def disassemble_total_pixel_matrix(
     total_pixel_matrix: numpy.ndarray
         Total pixel matrix
     tile_positions: Union[Sequence[Tuple[int, int]], numpy.ndarray]
-        Zero-based (column, row) position of each tile in the total pixel matrix
+        Zero-based (row, column) position of each tile in the total pixel matrix
     rows: int
         Number of rows per tile
     columns: int
@@ -42,7 +42,7 @@ def disassemble_total_pixel_matrix(
         raise ValueError(
             "Total pixel matrix has unexpected number of dimensions."
         )
-    for col_offset, row_offset in tile_positions:
+    for row_offset, col_offset in tile_positions:
         tile = np.zeros(tile_shape, dtype=total_pixel_matrix.dtype)
         pixel_array = total_pixel_matrix[
             row_offset:(row_offset + rows),
@@ -71,7 +71,7 @@ def assemble_total_pixel_matrix(
     tiles: Sequence[numpy.ndarray]
         Individual image tiles
     tile_positions: Union[Sequence[Tuple[int, int]], numpy.ndarray]
-        Zero-based (column, row) position of each tile in the total pixel matrix
+        Zero-based (row, column) position of each tile in the total pixel matrix
     total_pixel_matrix_rows: int
         Number of total rows
     total_pixel_matrix_columns: int
@@ -105,8 +105,8 @@ def assemble_total_pixel_matrix(
             dtype=tiles[0].dtype,
         )
     for i, frame in enumerate(tiles):
-        row_start = tile_positions[i][1]
-        col_start = tile_positions[i][0]
+        row_start = tile_positions[i][0]
+        col_start = tile_positions[i][1]
         row_stop = row_start + rows
         col_stop = col_start + columns
         total_pixel_matrix[
@@ -173,8 +173,8 @@ def compute_frame_positions(
             plane_pos_item = frame_item.PlanePositionSlideSequence[0]
             optical_path_item = frame_item.OpticalPathIdentificationSequence[0]
             matrix_positions[i, :] = (
-                int(plane_pos_item.ColumnPositionInTotalImagePixelMatrix) - 1,
                 int(plane_pos_item.RowPositionInTotalImagePixelMatrix) - 1,
+                int(plane_pos_item.ColumnPositionInTotalImagePixelMatrix) - 1,
             )
             slide_positions[i, :] = (
                 float(plane_pos_item.XOffsetInSlideCoordinateSystem),
@@ -193,8 +193,8 @@ def compute_frame_positions(
         for i in range(num_frames):
             plane_pos_item = plane_positions[i][0]
             matrix_positions[i, :] = (
-                int(plane_pos_item.ColumnPositionInTotalImagePixelMatrix) - 1,
                 int(plane_pos_item.RowPositionInTotalImagePixelMatrix) - 1,
+                int(plane_pos_item.ColumnPositionInTotalImagePixelMatrix) - 1,
             )
             slide_positions[i, :] = (
                 float(plane_pos_item.XOffsetInSlideCoordinateSystem),
@@ -298,8 +298,8 @@ def get_frame_contours(
     contours = []
     for i in frame_indices:
         frame_position = plane_positions[i][0]
-        r = frame_position.RowPositionInTotalImagePixelMatrix
-        c = frame_position.ColumnPositionInTotalImagePixelMatrix
+        r = frame_position.RowPositionInTotalImagePixelMatrix - 1
+        c = frame_position.ColumnPositionInTotalImagePixelMatrix - 1
 
         frame_pixel_coordinates = np.array(
             [

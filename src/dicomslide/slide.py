@@ -495,15 +495,15 @@ class Slide:
         Parameters
         ----------
         offset: Tuple[int, int]
-            Zero-based (column, row) indices in pixel unit in the range
-            [0, Columns) and [0, Rows), respectively, that
-            specify the offset of the image region in the total pixel matrix.
-            The ``(0, 0)`` coordinate is located at the **center** of the top
-            left pixel in the total pixel matrix.
+            Zero-based (row, column) indices in the range [0, Rows) and
+            [0, Columns), respectively, that specify the offset of the image
+            region in the total pixel matrix. The ``(0, 0)`` coordinate is
+            located at the center of the topleft hand pixel in the total pixel
+            matrix.
         level: int
             Zero-based index into pyramid levels
         size: Tuple[int, int]
-            Width and height of the requested image region in pixel unit
+            Rows and columns of the requested image region
         optical_path_index: int, optional
             Zero-based index into optical paths along the direction defined by
             Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
@@ -553,12 +553,11 @@ class Slide:
                 focal_plane_index=image_focal_plane_index
             )
 
-        col_index = offset[0]
-        row_index = offset[1]
+        row_index, col_index = offset
         col_factor, row_factor = self._pyramid[level].downsampling_factors
         col_start = int(np.floor(col_index / col_factor))
         row_start = int(np.floor(row_index / row_factor))
-        cols, rows = size
+        rows, cols = size
         row_stop = row_start + rows
         col_stop = col_start + cols
         logger.debug(
@@ -582,14 +581,14 @@ class Slide:
         Parameters
         ----------
         offset: Tuple[float, float]
-            Zero-based (x, y) coordinates at millimeter resolution in
-            the slide coordinate system defined by the frame of reference.
-            The ``(0.0, 0.0)`` coordinate is located at the origin of the
-            slide (which is usually the slide corner).
+            Zero-based (x, y) offset in the slide coordinate system in
+            millimeter resolution. The ``(0.0, 0.0)`` coordinate is located at
+            the origin of the slide (usually the slide corner).
         level: int
             Zero-based index into pyramid levels
         size: Tuple[float, float]
-            Width and height of the requested image region in millimeter unit
+            Width and height of the requested slide region in millimeter unit
+            along the X and Y axis of the slide coordinate system, respectively.
         optical_path_index: int, optional
             Zero-based index into optical paths along the direction defined by
             Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
@@ -604,6 +603,15 @@ class Slide:
         numpy.ndarray
             Three-dimensional pixel array of shape
             (Rows, Columns, Samples per Pixel) for the requested slide region
+
+        Note
+        ----
+        The slide coordinate system is defined for the upright standing slide
+        such that the X axis corresponds to the short side of the slide and the
+        Y axis corresponds to the long side of the slide.
+        The rows of the returned pixel array are thus parallel to the X axis of
+        the slide coordinate system and the columns parallel to the Y axis of
+        the slide coordinate system.
 
         """
         logger.debug(
@@ -634,12 +642,12 @@ class Slide:
                 focal_plane_index=focal_plane_index
             )
         ])
-        col_index = np.min(pixel_indices[:, 0])
-        row_index = np.min(pixel_indices[:, 1])
+        row_index = np.min(pixel_indices[:, 0])
+        col_index = np.min(pixel_indices[:, 1])
 
         pixel_spacing = self.pixel_spacings[level]
-        region_cols = int(np.ceil(size[0] / pixel_spacing[0]))
         region_rows = int(np.ceil(size[1] / pixel_spacing[1]))
+        region_cols = int(np.ceil(size[0] / pixel_spacing[0]))
 
         # Each image may have one or more optical paths or focal planes and the
         # image-level indices differ from the slide-level indices.
