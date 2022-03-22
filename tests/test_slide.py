@@ -5,6 +5,7 @@ import highdicom as hd
 import numpy as np
 import pytest
 from PIL import Image, ImageChops
+from pydicom.sr.codedict import codes
 from pydicom.uid import JPEGBaseline8Bit, JPEG2000Lossless
 
 from dicomslide.slide import find_slides, Slide
@@ -226,6 +227,51 @@ def test_color_images(client, dimension_organization_type):
                 size=(0.05, 0.03),
                 optical_path_index=0,
                 focal_plane_index=0
+            ),
+            np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
+        )
+        np.testing.assert_array_equal(
+            slide.get_slide_region_for_annotation(
+                annotation=hd.sr.Scoord3DContentItem(
+                    name=codes.DCM.ImageRegion,
+                    graphic_type=hd.sr.GraphicTypeValues3D.POLYGON,
+                    graphic_data=np.array([
+                        (10.0, 20.0, 0.0),
+                        (10.05, 20.0, 0.0),
+                        (10.05, 20.03, 0.0),
+                        (10.0, 20.03, 0.0),
+                        (10.0, 20.0, 0.0),
+                    ]),
+                    frame_of_reference_uid=(
+                        volume_images[0]
+                        .metadata
+                        .FrameOfReferenceUID
+                    )
+                ),
+                level=2,
+                optical_path_index=0
+            ),
+            np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
+        )
+        np.testing.assert_array_equal(
+            slide.get_slide_region_for_annotation(
+                annotation=hd.sr.Scoord3DContentItem(
+                    name=codes.DCM.ImageRegion,
+                    graphic_type=hd.sr.GraphicTypeValues3D.ELLIPSE,
+                    graphic_data=np.array([
+                        (10.0, 20.0, 0.0),
+                        (10.05, 20.03, 0.0),
+                        (10.0, 20.03, 0.0),
+                        (10.05, 20.0, 0.0),
+                    ]),
+                    frame_of_reference_uid=(
+                        volume_images[0]
+                        .metadata
+                        .FrameOfReferenceUID
+                    )
+                ),
+                level=2,
+                optical_path_index=0
             ),
             np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
         )

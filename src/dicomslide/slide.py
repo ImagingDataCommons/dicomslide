@@ -758,7 +758,8 @@ class Slide:
                 np.max([graphic_data[:, 1]]),
             ]
             slide_coordinates = (min_point[0], min_point[1])
-            focal_plane_offset = min_point[2]
+            # Points are co-planar per definition
+            focal_plane_offset = graphic_data[0, 2]
             size = (max_point[0] - min_point[0], max_point[1] - min_point[1])
         elif annotation.graphic_type == hd.sr.GraphicTypeValues3D.ELLIPSOID:
             raise ValueError(
@@ -775,8 +776,25 @@ class Slide:
         # focal plane closest to the annotated region of interest (ROI).
         # The coordinates of the ROI are expected to be co-planar and parallel
         # to the slide surface but they may not be located on the same plane
-        # as any of the available focal planes.
+        # as any of the available focal planes and may instead need to be
+        # projected onto the nearest focal plane.
         focal_plane_index = self.get_focal_plane_index(focal_plane_offset)
+
+        volume_images = self.get_volume_images(
+            optical_path_index=optical_path_index,
+            focal_plane_index=focal_plane_index
+        )
+        try:
+            image = volume_images[level]
+        except IndexError:
+            raise IndexError(f'Slide does not have level {level}.')
+        frame_of_reference_uid = image.metadata.FrameOfReferenceUID
+        ref_frame_of_reference_uid = annotation.ReferencedFrameOfReferenceUID
+        if ref_frame_of_reference_uid != frame_of_reference_uid:
+            raise ValueError(
+                'Annotation must be defined in same frame of reference as the '
+                'source images: "{frame_of_reference_uid}".'
+            )
 
         return self.get_slide_region(
             offset=slide_coordinates,
