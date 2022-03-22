@@ -230,7 +230,8 @@ class TiledImage:
         """
         image_orientation = self.metadata.ImageOrientationSlide
         radians = np.arctan2(-image_orientation[3], image_orientation[0])
-        degrees = -(radians * 180.0 / np.pi)
+        degrees = radians * 180.0 / np.pi
+        degrees -= 180.0
 
         # Images are expected to be rotated in plane parallel to the slide
         # surface and the rows and columns of the image are expected to be
