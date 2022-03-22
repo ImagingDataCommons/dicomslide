@@ -1,7 +1,7 @@
 import itertools
 import logging
 from hashlib import sha256
-from typing import Tuple
+from typing import Tuple, Union
 
 import highdicom as hd
 import numpy as np
@@ -33,7 +33,7 @@ class TiledImage:
     >>> print(image.metadata)  # pydicom.Dataset
     >>> print(image.metadata.BitsAllocated)
     >>> print(image.metadata.TotalPixelMatrixRows)
-    >>> pixel_matrix = image.get_tota_pixel_matrix(optical_path_index=1)
+    >>> pixel_matrix = image.get_tota_pixel_matrix(optical_path_index=0)
     >>> print(pixel_matrix.dtype)
     >>> print(pixel_matrix.shape)
     >>> print(pixel_matrix[:1000, 350:750, :])  # numpy.ndarray
@@ -91,8 +91,8 @@ class TiledImage:
         self._number_of_optical_paths = len(self._optical_path_identifiers)
 
         iterator = itertools.product(
-            range(1, self._number_of_optical_paths + 1),
-            range(1, self._number_of_focal_planes + 1),
+            range(self._number_of_optical_paths),
+            range(self._number_of_focal_planes),
         )
         self._total_pixel_matrix_lut = {
             (optical_path_index, focal_plane_index): TotalPixelMatrix(
@@ -108,7 +108,10 @@ class TiledImage:
         encoded_dataset = encode_dataset(self._metadata)
         self._quickhash = sha256(encoded_dataset).hexdigest()
 
-        self._ref2pix_transformer = None
+        self._ref2pix_transformer: Union[
+            hd.spatial.ReferenceToPixelTransformer,
+            None
+        ] = None
 
     def __hash__(self) -> int:
         return hash(self._quickhash)
@@ -123,33 +126,52 @@ class TiledImage:
         """int: Number of optical paths"""
         return self._number_of_optical_paths
 
-    def get_pixel_position(
+    # def find_optical_path(
+    #     self,
+    #     illumination_wavelength: Optional[float] = None,
+    #     stain: Optional[Code] = None
+    # ) -> int:
+    #     if illumination_wavelength is None and stain is None:
+    #         raise TypeError(
+    #             'At least one of the following arguments must be provided: '
+    #             '"illumination_wavelength", "stain".'
+    #         )
+    #     identifiers = set()
+    #     for item in self._metadata.OpticalPathSequence:
+    #         if illumination_wavelength is not None:
+    #             value = getattr(item, 'IlluminationWaveLength', None)
+    #             if value is not None and value == illumination_wavelength:
+    #                 identifiers.add(str(item.OpticalPathIdentifier))
+    #         else:
+    #             identifiers.add(str(item.OpticalPathIdentifier))
+
+    def get_pixel_indices(
         self,
-        slide_position: Tuple[float, float],
+        offset: Tuple[float, float],
         focal_plane_index: int
     ) -> Tuple[int, int]:
-        """Get position in total pixel matrix for a given position on the slide.
+        """Get indices into total pixel matrix for a given slide position.
 
         Parameters
         ----------
-        slide_position: Tuple[float, float]
+        offset: Tuple[float, float]
             Zero-based (x, y) offset in the slide coordinate system
         focal_plane_index: int
-            One-based index into focal planes along depth direction from the
+            Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
             specified by the Z Offset in Slide Coordinate System attribute.
-            Values must be in the range [1, Total Pixel Matrix Focal Planes]
+            Values must be in the range [0, Total Pixel Matrix Focal Planes)
 
         Returns
         -------
         Tuple[int, int]
-            One-based (column, row) position in the total pixel matrix
+            Zero-based (column, row) position in the total pixel matrix
 
         Note
         ----
-        Pixel position may be zero or negativ or extend beyond the size of the
-        total pixel matrix if `slide_position` does fall into a region on the
-        slide that was not imaged.
+        Pixel position may be negativ or extend beyond the size of the total
+        pixel matrix if slide position at `offset` does fall into a region on
+        the slide that was not imaged.
 
         """
         focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
@@ -183,12 +205,12 @@ class TiledImage:
                 pixel_spacing=pixel_spacing,
             )
         slide_coordinates = np.array([
-            [slide_position[0], slide_position[1], focal_plane_offset / 10**3]
+            [offset[0], offset[1], focal_plane_offset / 10**3]
         ])
         pixel_indices = self._ref2pix_transformer(slide_coordinates)
         return (
-            int(pixel_indices[0, 0]) + 1,
-            int(pixel_indices[0, 1]) + 1,
+            int(pixel_indices[0, 0]),
+            int(pixel_indices[0, 1]),
         )
 
     def get_rotation(self) -> float:
@@ -241,9 +263,9 @@ class TiledImage:
         Returns
         -------
         int
-            One-based index into optical paths along the direction defined by
+            Zero-based index into optical paths along the direction defined by
             successive items of the Optical Path Sequence attribute. Values
-            must be in the range [1, Number of Optical Paths].
+            must be in the range [0, Number of Optical Paths).
 
         Raises
         ------
@@ -260,7 +282,7 @@ class TiledImage:
                 f'Image "{self._metadata.SOPInstanceUID}" does not have an '
                 f'optical path with identifier "{optical_path_identifier}".'
             )
-        return index + 1
+        return index
 
     def get_optical_path_identifier(self, optical_path_index: int) -> str:
         """Get identifier of an optical path.
@@ -268,9 +290,9 @@ class TiledImage:
         Parameters
         ----------
         optical_path_index: int
-            One-based index into optical paths along the direction defined by
+            Zero-based index into optical paths along the direction defined by
             successive items of the Optical Path Sequence attribute. Values
-            must be in the range [1, Number of Optical Paths].
+            must be in the range [0, Number of Optical Paths).
 
         Returns
         -------
@@ -284,7 +306,7 @@ class TiledImage:
 
         """
         try:
-            return self._optical_path_identifiers[optical_path_index - 1]
+            return self._optical_path_identifiers[optical_path_index]
         except IndexError:
             raise ValueError(
                 f'Image "{self._metadata.SOPInstanceUID}" does not have an '
@@ -308,7 +330,7 @@ class TiledImage:
         Returns
         -------
         int
-            One-based index into focal planes along depth direction from the
+            Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
             specified by the Z Offset in Slide Coordinate System attribute.
             Values must be in the range [1, Total Pixel Matrix Focal Planes]
@@ -337,10 +359,10 @@ class TiledImage:
         Parameters
         ----------
         focal_plane_index: int
-            One-based index into focal planes along depth direction from the
+            Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
             specified by the Z Offset in Slide Coordinate System attribute.
-            Values must be in the range [1, Total Pixel Matrix Focal Planes]
+            Values must be in the range [0, Total Pixel Matrix Focal Planes).
 
         Returns
         -------
@@ -354,6 +376,7 @@ class TiledImage:
             When no focal plane is found for `focal_plane_index`
 
         """
+        # TODO: cache focal plane offsets
         origin_item = self._metadata.TotalPixelMatrixOriginSequence[0]
         dim_org_type = hd.DimensionOrganizationTypeValues(
             getattr(
@@ -408,22 +431,22 @@ class TiledImage:
 
     def get_total_pixel_matrix(
         self,
-        optical_path_index: int = 1,
-        focal_plane_index: int = 1
+        optical_path_index: int = 0,
+        focal_plane_index: int = 0
     ) -> TotalPixelMatrix:
         """Get total pixel matrix for a given optical path and focal plane.
 
         Parameters
         ----------
         optical_path_index: int, optional
-            One-based index into optical paths along the direction defined by
+            Zero-based index into optical paths along the direction defined by
             successive items of the Optical Path Sequence attribute. Values
-            must be in the range [1, Number of Optical Paths].
+            must be in the range [0, Number of Optical Paths).
         focal_plane_index: int, optional
-            One-based index into focal planes along depth direction from the
+            Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
             specified by the Z Offset in Slide Coordinate System attribute.
-            Values must be in the range [1, Total Pixel Matrix Focal Planes]
+            Values must be in the range [0, Total Pixel Matrix Focal Planes).
 
         Returns
         -------
@@ -432,22 +455,20 @@ class TiledImage:
 
         """
         if (
-            optical_path_index < 1 or
-            optical_path_index > self.num_optical_paths
+            optical_path_index < 0 or
+            optical_path_index >= self.num_optical_paths
         ):
             raise ValueError(
-                'Argument "optical_path_index" must be in range '
-                f'[1, {self.num_optical_paths}], but it is '
-                f'{optical_path_index}'
+                'Argument "optical_path_index" must be a zero-based index '
+                f'in range [0, {self.num_optical_paths}).'
             )
         if (
-            focal_plane_index < 1 or
-            focal_plane_index > self.num_focal_planes
+            focal_plane_index < 0 or
+            focal_plane_index >= self.num_focal_planes
         ):
             raise ValueError(
-                'Argument "focal_plane_index" must be in range '
-                f'[1, {self.num_focal_planes}], but it is '
-                f'{focal_plane_index}'
+                'Argument "focal_plane_index" must be a zero-based index '
+                f'in range [0, {self.num_focal_planes}).'
             )
 
         key = (optical_path_index, focal_plane_index)
@@ -455,7 +476,7 @@ class TiledImage:
             return self._total_pixel_matrix_lut[key]
         except KeyError:
             raise ValueError(
-                'Could not find a Total Pixel Matrix for '
-                f'Optical Path #{optical_path_index} and '
-                f'Focal Plane #{focal_plane_index}.'
+                'Could not find a total pixel matrix for '
+                f'optical path {optical_path_index} and '
+                f'focal plane {focal_plane_index}.'
             )

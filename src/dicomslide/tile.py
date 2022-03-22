@@ -20,7 +20,7 @@ def disassemble_total_pixel_matrix(
     total_pixel_matrix: numpy.ndarray
         Total pixel matrix
     tile_positions: Union[Sequence[Tuple[int, int]], numpy.ndarray]
-        (column, row) position of each tile in the total pixel matrix
+        Zero-based (column, row) position of each tile in the total pixel matrix
     rows: int
         Number of rows per tile
     columns: int
@@ -42,11 +42,11 @@ def disassemble_total_pixel_matrix(
         raise ValueError(
             "Total pixel matrix has unexpected number of dimensions."
         )
-    for row_offset, column_offset in tile_positions:
+    for col_offset, row_offset in tile_positions:
         tile = np.zeros(tile_shape, dtype=total_pixel_matrix.dtype)
         pixel_array = total_pixel_matrix[
             row_offset:(row_offset + rows),
-            column_offset:(column_offset + columns),
+            col_offset:(col_offset + columns),
             ...,
         ]
         tile[
@@ -71,7 +71,7 @@ def assemble_total_pixel_matrix(
     tiles: Sequence[numpy.ndarray]
         Individual image tiles
     tile_positions: Union[Sequence[Tuple[int, int]], numpy.ndarray]
-        One-based (column, row) position of each tile in the total pixel matrix
+        Zero-based (column, row) position of each tile in the total pixel matrix
     total_pixel_matrix_rows: int
         Number of total rows
     total_pixel_matrix_columns: int
@@ -105,8 +105,8 @@ def assemble_total_pixel_matrix(
             dtype=tiles[0].dtype,
         )
     for i, frame in enumerate(tiles):
-        row_start = tile_positions[i][1] - 1
-        col_start = tile_positions[i][0] - 1
+        row_start = tile_positions[i][1]
+        col_start = tile_positions[i][0]
         row_stop = row_start + rows
         col_stop = col_start + columns
         total_pixel_matrix[
@@ -131,26 +131,26 @@ def compute_frame_positions(
     Returns
     -------
     total_pixel_matrix_positions: numpy.ndarray
-        One-based (column, row) offset of the center of the top lefthand corner
+        Zero-based (row, column) offset of the center of the top lefthand corner
         pixel of each frame from the origin of the total pixel matrix in
         pixel unit.  Values are unsigned integers in the range
-        [1, Total Pixel Matrix Columns] and [1, Total Pixel Matrix Rows].
-        The position of the top lefthand corner tile is (1, 1).
+        [0, Total Pixel Matrix Rows) and [0, Total Pixel Matrix Columns).
+        The position of the top lefthand corner tile is (0, 0).
     slide_positions: numpy.ndarray
         Zero-based (x, y, z) offset of the center of the top lefthand corner
         pixel of each frame from the origin of the slide coordinate system
         (frame of reference) in millimeter unit. Values are floating-point
         numbers in the range [-inf, inf].
     optical_path_indices: numpy.ndarray
-        One-based index for each frame into optical paths along the direction
+        Zero-based index for each frame into optical paths along the direction
         defined by successive items of the Optical Path Sequence attribute.
-        Values are integers in the range [1, Number of Optical Paths].
+        Values are integers in the range [0, Number of Optical Paths).
     focal_plane_indices: numpy.ndarray
-        One-based index for each frame into focal planes along depth direction
+        Zero-based index for each frame into focal planes along depth direction
         from the glass slide towards the coverslip in the slide coordinate
         system specified by the Z Offset in Slide Coordinate System attribute.
         Values are integers in the range
-        [1, Total Pixel Matrix Focal Planes].
+        [0, Total Pixel Matrix Focal Planes).
 
     """
     if not is_tiled_image(image):
@@ -170,16 +170,16 @@ def compute_frame_positions(
         optical_path_indices = np.zeros((num_frames, ), dtype=int)
         for i in range(num_frames):
             frame_item = image.PerFrameFunctionalGroupsSequence[i]
-            plane_position_item = frame_item.PlanePositionSlideSequence[0]
+            plane_pos_item = frame_item.PlanePositionSlideSequence[0]
             optical_path_item = frame_item.OpticalPathIdentificationSequence[0]
             matrix_positions[i, :] = (
-                int(plane_position_item.ColumnPositionInTotalImagePixelMatrix),
-                int(plane_position_item.RowPositionInTotalImagePixelMatrix),
+                int(plane_pos_item.ColumnPositionInTotalImagePixelMatrix) - 1,
+                int(plane_pos_item.RowPositionInTotalImagePixelMatrix) - 1,
             )
             slide_positions[i, :] = (
-                float(plane_position_item.XOffsetInSlideCoordinateSystem),
-                float(plane_position_item.YOffsetInSlideCoordinateSystem),
-                float(plane_position_item.ZOffsetInSlideCoordinateSystem),
+                float(plane_pos_item.XOffsetInSlideCoordinateSystem),
+                float(plane_pos_item.YOffsetInSlideCoordinateSystem),
+                float(plane_pos_item.ZOffsetInSlideCoordinateSystem),
             )
             optical_path_indices[i] = optical_path_identifier_lut[
                 optical_path_item.OpticalPathIdentifier
@@ -191,15 +191,15 @@ def compute_frame_positions(
         )
         plane_positions = hd.utils.compute_plane_position_slide_per_frame(image)
         for i in range(num_frames):
-            plane_position_item = plane_positions[i][0]
+            plane_pos_item = plane_positions[i][0]
             matrix_positions[i, :] = (
-                int(plane_position_item.ColumnPositionInTotalImagePixelMatrix),
-                int(plane_position_item.RowPositionInTotalImagePixelMatrix),
+                int(plane_pos_item.ColumnPositionInTotalImagePixelMatrix) - 1,
+                int(plane_pos_item.RowPositionInTotalImagePixelMatrix) - 1,
             )
             slide_positions[i, :] = (
-                float(plane_position_item.XOffsetInSlideCoordinateSystem),
-                float(plane_position_item.YOffsetInSlideCoordinateSystem),
-                float(plane_position_item.ZOffsetInSlideCoordinateSystem),
+                float(plane_pos_item.XOffsetInSlideCoordinateSystem),
+                float(plane_pos_item.YOffsetInSlideCoordinateSystem),
+                float(plane_pos_item.ZOffsetInSlideCoordinateSystem),
             )
 
     z_offset_values = slide_positions[:, 2]
@@ -216,10 +216,6 @@ def compute_frame_positions(
                 'an unexpected number of focal planes was found.'
             )
 
-    # These are one-based indices for consistency with other DICOM indexes
-    optical_path_indices += 1
-    focal_plane_indices += 1
-
     return (
         matrix_positions,
         slide_positions,
@@ -230,7 +226,7 @@ def compute_frame_positions(
 
 def get_frame_contours(
     image: Dataset,
-    frame_numbers: Optional[Sequence[int]] = None
+    frame_indices: Optional[Sequence[int]] = None
 ) -> List[np.ndarray]:
     """Get contours image frames in the slide coordinate system.
 
@@ -238,8 +234,8 @@ def get_frame_contours(
     ----------
     image: pydicom.dataset.Dataset
         Metadata of a DICOM VL Whole Slide Microscopy Image
-    frame_numbers: Union[Sequence[int], None], optional
-        One-based index number of frames for which contours should be obtained
+    frame_indices: Union[Sequence[int], None], optional
+        Zero-based index number of frames for which contours should be obtained
 
     Returns
     -------
@@ -257,8 +253,8 @@ def get_frame_contours(
             "Images with multiple focal planes are not supported."
         )
 
-    if frame_numbers is None:
-        frame_numbers = list(range(1, int(image.NumberOfFrames) + 1))
+    if frame_indices is None:
+        frame_indices = list(range(int(image.NumberOfFrames)))
 
     if "PerFrameFunctionalGroupsSequence" in image:
         plane_positions = [
@@ -300,9 +296,8 @@ def get_frame_contours(
     rows = image.Rows
     cols = image.Columns
     contours = []
-    for n in frame_numbers:
-        frame_index = n - 1
-        frame_position = plane_positions[frame_index][0]
+    for i in frame_indices:
+        frame_position = plane_positions[i][0]
         r = frame_position.RowPositionInTotalImagePixelMatrix
         c = frame_position.ColumnPositionInTotalImagePixelMatrix
 

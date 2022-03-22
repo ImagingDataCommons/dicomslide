@@ -120,8 +120,8 @@ class TotalPixelMatrix:
         self,
         client: DICOMClient,
         image_metadata: Dataset,
-        optical_path_index: int = 1,
-        focal_plane_index: int = 1,
+        optical_path_index: int = 0,
+        focal_plane_index: int = 0,
         max_frame_cache_size: int = 9,
         correct_color: bool = True
     ) -> None:
@@ -134,14 +134,14 @@ class TotalPixelMatrix:
         image_metadata: pydicom.dataset.Dataset
             Metadata of a tiled DICOM image
         optical_path_index: int, optional
-            One-based index into optical paths along the direction defined by
+            Zero-based index into optical paths along the direction defined by
             successive items of the Optical Path Sequence attribute. Values
-            must be in the range [1, Number of Optical Paths].
+            must be in the range [0, Number of Optical Paths).
         focal_plane_index: int, optional
-            One-based index into focal planes along depth direction from the
+            Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
             specified by the Z Offset in Slide Coordinate System attribute.
-            Values must be in the range [1, Total Pixel Matrix Focal Planes]
+            Values must be in the range [0, Total Pixel Matrix Focal Planes).
         max_frame_cache_size: int, optional
             Maximum number of frames that should be cached to avoid repeated
             retrieval requests
@@ -165,16 +165,16 @@ class TotalPixelMatrix:
         ) = compute_frame_positions(image_metadata)
 
         num_optical_paths = len(np.unique(optical_path_indices))
-        if optical_path_index < 1 or optical_path_index > num_optical_paths:
+        if optical_path_index < 0 or optical_path_index >= num_optical_paths:
             raise ValueError(
-                'Argument "optical_path_index" must be in range '
-                f'[1, {num_optical_paths}].'
+                'Argument "optical_path_index" must be a zero-based index '
+                f'in range [0, {num_optical_paths}).'
             )
         num_focal_planes = len(np.unique(focal_plane_indices))
-        if focal_plane_index < 1 or focal_plane_index > num_focal_planes:
+        if focal_plane_index < 0 or focal_plane_index >= num_focal_planes:
             raise ValueError(
-                'Argument "focal_plane_index" must be in range '
-                f'[1, {num_focal_planes}].'
+                'Argument "focal_plane_index" must be a zero-based index '
+                f'in range [0, {num_focal_planes}).'
             )
 
         frame_selection_index = np.logical_and(
@@ -183,8 +183,8 @@ class TotalPixelMatrix:
         )
         self._tile_positions = matrix_positions[frame_selection_index, :]
         self._tile_grid_indices = np.column_stack([
-            np.floor((self._tile_positions[:, 1] - 1) / self._rows),
-            np.floor((self._tile_positions[:, 0] - 1) / self._cols),
+            np.floor((self._tile_positions[:, 1]) / self._rows),
+            np.floor((self._tile_positions[:, 0]) / self._cols),
         ]).astype(int)
         tile_sort_index = np.lexsort([
             self._tile_grid_indices[:, 1],
@@ -388,7 +388,7 @@ class TotalPixelMatrix:
         Parameters
         ----------
         position: Tuple[int, int]
-            Zero-based (row, column) index of a tile in the tile grid
+            Zero-based (column, row) index of a tile in the tile grid
 
         Returns
         -------
@@ -455,7 +455,7 @@ class TotalPixelMatrix:
         row_stop_tile_index = int(np.ceil(row_stop_tile_fraction))
         row_tile_range = list(range(row_start_tile_index, row_stop_tile_index))
         region_row_start = int(
-            np.ceil(
+            np.floor(
                 (row_start_tile_fraction - row_start_tile_index) * self._rows
             )
         )
@@ -495,7 +495,7 @@ class TotalPixelMatrix:
         col_stop_tile_index = int(np.ceil(col_stop_tile_fraction))
         col_tile_range = list(range(col_start_tile_index, col_stop_tile_index))
         region_col_start = int(
-            np.ceil(
+            np.floor(
                 (col_start_tile_fraction - col_start_tile_index) * self._cols
             )
         )
@@ -562,10 +562,10 @@ class TotalPixelMatrix:
                 tiles=tiles,
                 tile_positions=tile_positions,
                 total_pixel_matrix_columns=int(
-                    np.max(tile_positions[:, 0]) - 1 + self._cols
+                    np.max(tile_positions[:, 0]) + self._cols
                 ),
                 total_pixel_matrix_rows=int(
-                    np.max(tile_positions[:, 1]) - 1 + self._rows
+                    np.max(tile_positions[:, 1]) + self._rows
                 )
             )
             region = extended_region[

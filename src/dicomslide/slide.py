@@ -112,7 +112,7 @@ class Slide:
             if metadata.ContainerIdentifier != ref_image.ContainerIdentifier:
                 raise ValueError(
                     'All items of argument "image_metadata" must be DICOM '
-                    'VL Whole Slide Microscpy Image instance with the same '
+                    'VL Whole Slide Microscopy Image instance with the same '
                     'Container Identifier.'
                 )
 
@@ -129,8 +129,8 @@ class Slide:
             )
             if is_volume_image(metadata):
                 iterator: Iterator[Tuple[int, int]] = itertools.product(
-                    range(1, image.num_optical_paths + 1),
-                    range(1, image.num_focal_planes + 1),
+                    range(image.num_optical_paths),
+                    range(image.num_focal_planes),
                 )
                 for optical_path_index, focal_plane_index in iterator:
                     optical_path_identifier = image.get_optical_path_identifier(
@@ -166,19 +166,19 @@ class Slide:
         self._number_of_optical_paths = len(unique_optical_path_identifiers)
         self._number_of_focal_planes = len(unique_focal_plane_offsets)
         self._optical_path_identifier_lut: Mapping[int, str] = OrderedDict({
-            i + 1: optical_path_id
+            i: optical_path_id
             for i, optical_path_id in enumerate(unique_optical_path_identifiers)
         })
         self._optical_path_index_lut: Mapping[str, int] = OrderedDict({
-            optical_path_id: i + 1
+            optical_path_id: i
             for i, optical_path_id in enumerate(unique_optical_path_identifiers)
         })
         self._focal_plane_offset_lut: Mapping[int, float] = OrderedDict({
-            i + 1: focal_plane_offset
+            i: focal_plane_offset
             for i, focal_plane_offset in enumerate(unique_focal_plane_offsets)
         })
         self._focal_plane_index_lut: Mapping[float, int] = OrderedDict({
-            focal_plane_offset: i + 1
+            focal_plane_offset: i
             for i, focal_plane_offset in enumerate(unique_focal_plane_offsets)
         })
         encoded_image_metadata = []
@@ -231,7 +231,7 @@ class Slide:
 
         # For now, pyramids must be identical across optical paths and focal
         # planes. This requirement could potentially be relaxed in the future.
-        ref_pyramid = pyramids[(1, 1)]
+        ref_pyramid = pyramids[(0, 0)]
         for pyramid in pyramids.values():
             if pyramid != ref_pyramid:
                 raise ValueError(
@@ -251,18 +251,18 @@ class Slide:
 
     def get_volume_images(
         self,
-        optical_path_index: int = 1,
-        focal_plane_index: int = 1
+        optical_path_index: int = 0,
+        focal_plane_index: int = 0
     ) -> Tuple[TiledImage, ...]:
         """Get VOLUME or THUMBNAIL images for an optical path and focal plane.
 
         Parameters
         ----------
         optical_path_index: int, optional
-            One-based index into optical paths along the direction defined by
+            Zero-based index into optical paths along the direction defined by
             Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
         focal_plane_index: int, optional
-            One-based index into focal planes along depth direction from the
+            Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
             specified by the Z Offset in Slide Coordinate System attribute of
             VOLUME or THUMBNAIL images.
@@ -303,7 +303,7 @@ class Slide:
         Parameters
         ----------
         optical_path_index: int
-            One-based index into optical paths along the direction defined by
+            Zero-based index into optical paths along the direction defined by
             Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
 
         Returns
@@ -336,7 +336,7 @@ class Slide:
         Returns
         -------
         int
-            One-based index into optical paths along the direction defined by
+            Zero-based index into optical paths along the direction defined by
             Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
 
         Raises
@@ -364,7 +364,7 @@ class Slide:
         Parameters
         ----------
         focal_plane_index: int
-            One-based index into focal planes along depth direction from the
+            Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
             specified by the Z Offset in Slide Coordinate System attribute of
             VOLUME or THUMBNAIL images.
@@ -401,7 +401,7 @@ class Slide:
         Returns
         -------
         int
-            One-based index into focal planes along depth direction from the
+            Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
             specified by the Z Offset in Slide Coordinate System attribute of
             VOLUME or THUMBNAIL images.
@@ -484,31 +484,31 @@ class Slide:
 
     def get_image_region(
         self,
-        pixel_indices: Tuple[int, int],
+        offset: Tuple[int, int],
         level: int,
         size: Tuple[int, int],
-        optical_path_index: int = 1,
-        focal_plane_index: int = 1
+        optical_path_index: int = 0,
+        focal_plane_index: int = 0
     ) -> np.ndarray:
         """Get image region.
 
         Parameters
         ----------
-        pixel_indices: Tuple[int, int]
+        offset: Tuple[int, int]
             Zero-based (column, row) indices in pixel unit in the range
-            [0, Columns - 1] and [0, Rows - 1], respectively, that
+            [0, Columns) and [0, Rows), respectively, that
             specify the offset of the image region in the total pixel matrix.
             The ``(0, 0)`` coordinate is located at the **center** of the top
             left pixel in the total pixel matrix.
         level: int
-            Pyramid level
+            Zero-based index into pyramid levels
         size: Tuple[int, int]
             Width and height of the requested image region in pixel unit
         optical_path_index: int, optional
-            One-based index into optical paths along the direction defined by
+            Zero-based index into optical paths along the direction defined by
             Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
         focal_plane_index: int, optional
-            One-based index into focal planes along depth direction from the
+            Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
             specified by the Z Offset in Slide Coordinate System attribute of
             VOLUME or THUMBNAIL images.
@@ -521,7 +521,7 @@ class Slide:
 
         """
         logger.debug(
-            f'get region of size {size} at position {pixel_indices} '
+            f'get region of size {size} at offset {offset} '
             f'at level {level} for image with optical path index '
             f'{optical_path_index} and focal plane index {focal_plane_index}'
         )
@@ -538,8 +538,8 @@ class Slide:
         # image-level indices differ from the slide-level indices.
         if image.num_optical_paths == 1 and image.num_focal_planes == 1:
             matrix = image.get_total_pixel_matrix(
-                optical_path_index=1,
-                focal_plane_index=1
+                optical_path_index=0,
+                focal_plane_index=0
             )
         else:
             image_optical_path_index = image.get_optical_path_index(
@@ -553,7 +553,8 @@ class Slide:
                 focal_plane_index=image_focal_plane_index
             )
 
-        col_index, row_index = pixel_indices
+        col_index = offset[0]
+        row_index = offset[1]
         col_factor, row_factor = self._pyramid[level].downsampling_factors
         col_start = int(np.floor(col_index / col_factor))
         row_start = int(np.floor(row_index / row_factor))
@@ -570,30 +571,30 @@ class Slide:
 
     def get_slide_region(
         self,
-        slide_coordinates: Tuple[float, float],
+        offset: Tuple[float, float],
         level: int,
         size: Tuple[float, float],
-        optical_path_index: int = 1,
-        focal_plane_index: int = 1
+        optical_path_index: int = 0,
+        focal_plane_index: int = 0
     ) -> np.ndarray:
         """Get slide region.
 
         Parameters
         ----------
-        slide_coordinates: Tuple[float, float, float]
+        offset: Tuple[float, float]
             Zero-based (x, y) coordinates at millimeter resolution in
             the slide coordinate system defined by the frame of reference.
             The ``(0.0, 0.0)`` coordinate is located at the origin of the
             slide (which is usually the slide corner).
         level: int
-            Pyramid level
+            Zero-based index into pyramid levels
         size: Tuple[float, float]
             Width and height of the requested image region in millimeter unit
         optical_path_index: int, optional
-            One-based index into optical paths along the direction defined by
+            Zero-based index into optical paths along the direction defined by
             Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
         focal_plane_index: int, optional
-            One-based index into focal planes along depth direction from the
+            Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
             specified by the Z Offset in Slide Coordinate System attribute of
             VOLUME or THUMBNAIL images.
@@ -606,10 +607,10 @@ class Slide:
 
         """
         logger.debug(
-            f'get region on slide of size {size} [mm] at position '
-            f'{slide_coordinates} [mm] at level {level} for image '
-            f'with optical path index {optical_path_index} and focal plane '
-            f'index {focal_plane_index}'
+            f'get region on slide of size {size} [mm] at offset '
+            f'{offset} [mm] at level {level} for image '
+            f'with optical path {optical_path_index} and focal plane '
+            f'{focal_plane_index}.'
         )
         volume_images = self.get_volume_images(
             optical_path_index=optical_path_index,
@@ -621,20 +622,20 @@ class Slide:
             raise IndexError(f'Slide does not have level {level}.')
 
         pixel_indices = np.array([
-            image.get_pixel_position(
-                slide_position=slide_coordinates,
+            image.get_pixel_indices(
+                offset=offset,
                 focal_plane_index=focal_plane_index
             ),
-            image.get_pixel_position(
-                slide_position=(
-                    slide_coordinates[0] + size[0],
-                    slide_coordinates[1] + size[1],
+            image.get_pixel_indices(
+                offset=(
+                    offset[0] + size[0],
+                    offset[1] + size[1],
                 ),
                 focal_plane_index=focal_plane_index
             )
         ])
-        col_index = np.min(pixel_indices[:, 0]) - 1
-        row_index = np.min(pixel_indices[:, 1]) - 1
+        col_index = np.min(pixel_indices[:, 0])
+        row_index = np.min(pixel_indices[:, 1])
 
         pixel_spacing = self.pixel_spacings[level]
         region_cols = int(np.ceil(size[0] / pixel_spacing[0]))
@@ -644,8 +645,8 @@ class Slide:
         # image-level indices differ from the slide-level indices.
         if image.num_optical_paths == 1 and image.num_focal_planes == 1:
             matrix = image.get_total_pixel_matrix(
-                optical_path_index=1,
-                focal_plane_index=1
+                optical_path_index=0,
+                focal_plane_index=0
             )
         else:
             focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
@@ -699,7 +700,7 @@ class Slide:
         self,
         annotation: hd.sr.Scoord3DContentItem,
         level: int,
-        optical_path_index: int = 1
+        optical_path_index: int = 0
     ) -> np.ndarray:
         """Get slide region defined by a graphic annotation.
 
@@ -709,9 +710,9 @@ class Slide:
             Graphic annotation that defines the region of interest (ROI) in the
             slide coordinate system
         level: int
-            Pyramid level
+            Zero-based index into pyramid levels
         optical_path_index: int, optional
-            One-based index into optical paths along the direction defined by
+            Zero-based index into optical paths along the direction defined by
             Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
 
         Returns
@@ -770,7 +771,7 @@ class Slide:
         focal_plane_index = self.get_focal_plane_index(focal_plane_offset)
 
         return self.get_slide_region(
-            slide_coordinates=slide_coordinates,
+            offset=slide_coordinates,
             level=level,
             size=size,
             optical_path_index=optical_path_index,

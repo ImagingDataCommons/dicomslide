@@ -126,8 +126,8 @@ class OpenSlide:
         Parameters
         ----------
         location: Tuple[int, int]
-            (Column, Row) offset of the region from the topleft hand pixel of
-            of the total pixel matrix of the image at the base level 0
+            Zero-based (column, row) offset of the region from the topleft hand
+            pixel of of the total pixel matrix of the image at the base level 0
         level: int
             Zero-based level index
         size: Tuple[int, int]
@@ -141,11 +141,11 @@ class OpenSlide:
 
         """
         pixel_array = self._slide.get_image_region(
-            pixel_indices=location,
+            offset=location,
             level=level,
             size=size,
-            optical_path_index=1,
-            focal_plane_index=1
+            optical_path_index=0,
+            focal_plane_index=0
         )
         return self._convert_to_pil_image(pixel_array)
 
