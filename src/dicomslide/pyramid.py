@@ -391,6 +391,26 @@ class Pyramid:
         ])
         self._current_index = 0
 
+    def __repr__(self) -> str:
+        parts = []
+        for i, level in enumerate(self):
+            parts.append(f'=== level {i} ===')
+            parts.append(
+                'Total Pixel Matrix Rows/Columns: '
+                f'{level.total_pixel_matrix_dimensions}'
+            )
+            parts.append(
+                'Imaged Volume Width/Height/Depth: '
+                f'{level.imaged_volume_dimensions}'
+            )
+            parts.append(
+                f'Pixel Spacing: {level.pixel_spacing}'
+            )
+            parts.append(
+                f'Downsampling Factors: {level.downsampling_factors}'
+            )
+        return '\n'.join(parts)
+
     def __getitem__(self, key: int) -> PyramidLevel:
         return self._levels[key]
 
