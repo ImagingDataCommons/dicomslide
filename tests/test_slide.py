@@ -259,10 +259,10 @@ def test_color_images(client, dimension_organization_type):
                     name=codes.DCM.ImageRegion,
                     graphic_type=hd.sr.GraphicTypeValues3D.ELLIPSE,
                     graphic_data=np.array([
-                        (10.0, 20.0, 0.0),
-                        (10.05, 20.03, 0.0),
-                        (10.0, 20.03, 0.0),
-                        (10.05, 20.0, 0.0),
+                        (10.0, 20.015, 0.0),
+                        (10.05, 20.015, 0.0),
+                        (10.025, 20.0, 0.0),
+                        (10.025, 20.03, 0.0),
                     ]),
                     frame_of_reference_uid=(
                         volume_images[0]
@@ -270,11 +270,28 @@ def test_color_images(client, dimension_organization_type):
                         .FrameOfReferenceUID
                     )
                 ),
-                level=2,
+                level=3,
                 optical_path_index=0
             ),
-            np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((7, 4, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
+        with pytest.raises(ValueError):
+            slide.get_slide_region_for_annotation(
+                annotation=hd.sr.Scoord3DContentItem(
+                    name=codes.DCM.ImageRegion,
+                    graphic_type=hd.sr.GraphicTypeValues3D.POLYGON,
+                    graphic_data=np.array([
+                        (10.0, 20.0, 0.0),
+                        (10.05, 20.0, 0.0),
+                        (10.05, 20.03, 0.0),
+                        (10.0, 20.03, 0.0),
+                        (10.0, 20.0, 0.0),
+                    ]),
+                    frame_of_reference_uid='1.2.3.4'
+                ),
+                level=2,
+                optical_path_index=0
+            )
 
         openslide = OpenSlide(slide)
         assert openslide.level_count == expected_num_levels
@@ -288,16 +305,28 @@ def test_color_images(client, dimension_organization_type):
         ])
         assert openslide.level_downsamples == expected_downsampling_factors
         assert len(openslide.associated_images) == 2
+        label_image = openslide.associated_images['LABEL']
+        assert isinstance(label_image, Image.Image)
+        assert label_image.mode == 'RGBA'
+        overview_image = openslide.associated_images['OVERVIEW']
+        assert isinstance(overview_image, Image.Image)
+        assert overview_image.mode == 'RGBA'
         expected_mpp_x = slide.pixel_spacings[0][0] * 10**3
         expected_mpp_y = slide.pixel_spacings[0][1] * 10**3
         assert openslide.properties[OPENSLIDE_MPP_X] == str(expected_mpp_x)
         assert openslide.properties[OPENSLIDE_MPP_Y] == str(expected_mpp_y)
+
+        thumbnail_image = openslide.get_thumbnail(size=(10, 10))
+        assert isinstance(thumbnail_image, Image.Image)
+        assert thumbnail_image.mode == 'RGB'
 
         image_region = openslide.read_region(
             location=(0, 0),
             level=0,
             size=(100, 52)
         )
+        assert isinstance(image_region, Image.Image)
+        assert image_region.mode == 'RGBA'
         expected_image_region = Image.new(
             mode='RGBA',
             size=(100, 52),

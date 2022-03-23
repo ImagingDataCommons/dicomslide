@@ -85,16 +85,14 @@ def assemble_total_pixel_matrix(
     """
     if tiles[0].ndim == 3:
         rows, columns = tiles[0].shape[-3:-1]
-        total_pixel_matrix = (
-            np.ones(
-                (
-                    total_pixel_matrix_rows,
-                    total_pixel_matrix_columns,
-                    tiles[0].shape[2],
-                ),
-                dtype=tiles[0].dtype,
-            ) * 255
-        )
+        total_pixel_matrix = np.zeros(
+            (
+                total_pixel_matrix_rows,
+                total_pixel_matrix_columns,
+                tiles[0].shape[2],
+            ),
+            dtype=tiles[0].dtype,
+        ) + tiles[0].dtype.type(255)
     else:
         rows, columns = tiles[0].shape[-2:]
         total_pixel_matrix = np.zeros(
@@ -104,16 +102,26 @@ def assemble_total_pixel_matrix(
             ),
             dtype=tiles[0].dtype,
         )
-    for i, frame in enumerate(tiles):
+    for i, tile in enumerate(tiles):
         row_start = tile_positions[i][0]
         col_start = tile_positions[i][1]
         row_stop = row_start + rows
+        row_diff = total_pixel_matrix_rows - row_stop
+        if row_diff < 0:
+            frame_row_stop = row_diff
+        else:
+            frame_row_stop = None
         col_stop = col_start + columns
+        col_diff = total_pixel_matrix_columns - col_stop
+        if col_diff < 0:
+            frame_col_stop = col_diff
+        else:
+            frame_col_stop = None
         total_pixel_matrix[
             row_start:row_stop,
             col_start:col_stop,
             ...,
-        ] = frame
+        ] = tile[:frame_row_stop, :frame_col_stop, :]
 
     return total_pixel_matrix
 
@@ -258,7 +266,7 @@ def get_frame_contours(
 
     if "PerFrameFunctionalGroupsSequence" in image:
         plane_positions = [
-            item.PlanePositionSequence
+            item.PlanePositionSlideSequence
             for item in image.PerFrameFunctionalGroupsSequence
         ]
         # There appears to be no other way to obtain this information.

@@ -6,6 +6,7 @@ from typing import Dict, Tuple
 import numpy as np
 from PIL import Image as PillowImage
 
+from dicomslide.enum import ImageFlavors
 from dicomslide.slide import Slide
 
 logger = logging.getLogger(__name__)
@@ -122,16 +123,29 @@ class OpenSlide:
 
     @property
     def associated_images(self) -> Dict[str, PillowImage.Image]:
-        """Dict[str, PIL.Image.Image]: Mapping of DICOM SOP Instance UID to
-        LABEL or OVERVIEW image
+        """Dict[str, PIL.Image.Image]: Mapping of image flavor (LABEL or
+        OVERVIEW) to image
 
         """
         mapping = {}
-        for image in self._slide.label_images + self._slide.overview_images:
+        if len(self._slide.label_images) > 0:
+            if len(self._slide.label_images) > 1:
+                logger.warning(
+                    'slide has more than one associated LABEL image'
+                )
+            image = self._slide.label_images[0]
             matrix = image.get_total_pixel_matrix()
-            mapping[image.metadata.SOPInstanceUID] = self._convert_to_pil_image(
-                matrix[:, :, :]
-            )
+            flavor = ImageFlavors.LABEL.value
+            mapping[flavor] = self._convert_to_pil_image(matrix[:, :, :])
+        if len(self._slide.overview_images) > 0:
+            if len(self._slide.overview_images) > 1:
+                logger.warning(
+                    'slide has more than one associated OVERVIEW image'
+                )
+            image = self._slide.overview_images[0]
+            matrix = image.get_total_pixel_matrix()
+            flavor = ImageFlavors.OVERVIEW.value
+            mapping[flavor] = self._convert_to_pil_image(matrix[:, :, :])
         return mapping
 
     def read_region(
@@ -236,7 +250,7 @@ class OpenSlide:
         distances = np.abs(level_downsamples - downsample)
         return int(np.argmin(distances))
 
-    def get_thumbnail(self, size: Tuple[int, int]) -> PillowImage:
+    def get_thumbnail(self, size: Tuple[int, int]) -> PillowImage.Image:
         """Create a thumbnail of the slide.
 
         Parameters
@@ -250,15 +264,15 @@ class OpenSlide:
             RGB image
 
         """
-        downsample = max(
+        downsampling_factor = max(
             *(dim / thumb for dim, thumb in zip(self.dimensions, size))
         )
-        level = self.get_best_level_for_downsample(downsample)
+        level = self.get_best_level_for_downsample(downsampling_factor)
         tile = self.read_region((0, 0), level, self.level_dimensions[level])
-        bg_color = '#{}'.format(
+        background_color = '#{}'.format(
             self.properties.get(OPENSLIDE_BACKGROUND_COLOR, 'ffffff')
         )
-        thumb = PillowImage.new('RGB', tile.size, bg_color)
+        thumb = PillowImage.new('RGB', tile.size, background_color)
         thumb.paste(tile, None, tile)
         thumb.thumbnail(size, PillowImage.ANTIALIAS)
         return thumb
