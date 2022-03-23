@@ -129,9 +129,20 @@ def test_get_frame_contours(dimension_organization_type, mode):
     )
     contours = get_frame_contours(image)
 
+    n_tile_rows = int(np.ceil(image.TotalPixelMatrixRows / image.Rows))
+    n_tile_cols = int(np.ceil(image.TotalPixelMatrixColumns / image.Columns))
+
     assert len(contours) == int(image.NumberOfFrames)
-    assert contours[0].dtype == np.float64
-    assert contours[0].shape == (5, 3)
+
+    for i, (r, c) in enumerate(
+        itertools.product(range(n_tile_rows), range(n_tile_cols))
+    ):
+        assert contours[i].dtype == np.float64
+        assert contours[i].shape == (5, 3)
+        np.testing.assert_array_equal(
+            contours[i][0],
+            contours[i][-1],
+        )
 
 
 @pytest.mark.parametrize(
