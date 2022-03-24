@@ -55,7 +55,11 @@ class OpenSlide:
         self._slide = slide
         self._volume_images = self._slide.get_volume_images()
         for image in self._volume_images:
-            if image.num_optical_paths > 1:
+            if image.metadata.SamplesPerPixel != 3:
+                raise ValueError(
+                    'OpenSlide API only supports color images.'
+                )
+            if image.num_channels > 1:
                 raise ValueError(
                     'OpenSlide API only supports images with a single '
                     'optical path.'

@@ -130,11 +130,11 @@ class Slide:
             )
             if is_volume_image(metadata):
                 iterator: Iterator[Tuple[int, int]] = itertools.product(
-                    range(image.num_optical_paths),
+                    range(image.num_channels),
                     range(image.num_focal_planes),
                 )
                 for optical_path_index, focal_plane_index in iterator:
-                    optical_path_identifier = image.get_optical_path_identifier(
+                    optical_path_identifier = image.get_channel_identifier(
                         optical_path_index
                     )
                     focal_plane_offset = image.get_focal_plane_offset(
@@ -288,20 +288,20 @@ class Slide:
 
         # Each image may have one or more optical paths or focal planes and the
         # image-level indices differ from the slide-level indices.
-        if image.num_optical_paths == 1 and image.num_focal_planes == 1:
+        if image.num_channels == 1 and image.num_focal_planes == 1:
             matrix = image.get_total_pixel_matrix(
-                optical_path_index=0,
+                channel_index=0,
                 focal_plane_index=0
             )
         else:
-            image_optical_path_index = image.get_optical_path_index(
+            image_optical_path_index = image.get_channel_index(
                 self.get_optical_path_identifier(optical_path_index)
             )
             image_focal_plane_index = image.get_focal_plane_index(
                 self.get_focal_plane_offset(focal_plane_index)
             )
             matrix = image.get_total_pixel_matrix(
-                optical_path_index=image_optical_path_index,
+                channel_index=image_optical_path_index,
                 focal_plane_index=image_focal_plane_index
             )
         return matrix
@@ -685,21 +685,21 @@ class Slide:
 
         # Each image may have one or more optical paths or focal planes and the
         # image-level indices differ from the slide-level indices.
-        if image.num_optical_paths == 1 and image.num_focal_planes == 1:
+        if image.num_channels == 1 and image.num_focal_planes == 1:
             matrix = image.get_total_pixel_matrix(
-                optical_path_index=0,
+                channel_index=0,
                 focal_plane_index=0
             )
         else:
             focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
-            image_optical_path_index = image.get_optical_path_index(
+            image_optical_path_index = image.get_channel_index(
                 self.get_optical_path_identifier(optical_path_index)
             )
             image_focal_plane_index = image.get_focal_plane_index(
                 focal_plane_offset
             )
             matrix = image.get_total_pixel_matrix(
-                optical_path_index=image_optical_path_index,
+                channel_index=image_optical_path_index,
                 focal_plane_index=image_focal_plane_index
             )
 

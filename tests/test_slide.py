@@ -17,9 +17,6 @@ from dicomslide.openslide import (
 
 from .dummy import VLWholeSlideMicroscopyImage
 
-TILED_FULL = hd.DimensionOrganizationTypeValues.TILED_FULL
-TILED_SPARSE = hd.DimensionOrganizationTypeValues.TILED_SPARSE
-
 
 def generate_test_images(
     number_of_optical_paths: int,
@@ -140,7 +137,10 @@ def generate_test_images(
 
 @pytest.mark.parametrize(
     'dimension_organization_type',
-    [TILED_FULL, TILED_SPARSE]
+    [
+        hd.DimensionOrganizationTypeValues.TILED_FULL,
+        hd.DimensionOrganizationTypeValues.TILED_SPARSE,
+    ]
 )
 def test_color_images(client, dimension_organization_type):
     expected_num_optical_paths = 1
@@ -358,7 +358,7 @@ def test_grayscale_images(client):
         number_of_focal_planes=expected_num_focal_planes,
         samples_per_pixel=expected_samples_per_pixel,
         transfer_syntax_uid=JPEG2000Lossless,
-        dimension_organization_type=TILED_SPARSE
+        dimension_organization_type=hd.DimensionOrganizationTypeValues.TILED_SPARSE
     )
 
     for datasets in groups.values():

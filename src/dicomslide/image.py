@@ -8,6 +8,7 @@ import numpy as np
 from dicomweb_client import DICOMClient
 from pydicom.dataset import Dataset
 
+from dicomslide._channel import _get_channel_info
 from dicomslide.matrix import TotalPixelMatrix
 from dicomslide.tile import compute_frame_positions
 from dicomslide.utils import encode_dataset
@@ -24,8 +25,21 @@ class TiledImage:
     pixel data from a DICOMweb server (or another source for which the
     :class:`dicomweb_client.DICOMClient` protocol has been implemented).
 
-    Each image is associated with one or more :class:`TotalPixelMatrix`
-    instances, one per optical path and focal plane.
+    A tiled image is hereby defined as a DICOM image instance that contains
+    the Total Pixel Matrix Rows and Total Pixel Matrix Columns attributes.
+
+    The class is designed to be independent of a particular DICOM Information
+    Object Definition (IOD) or SOP Class and support various different types of
+    DICOM images, including VL Whole Slide Microscopy Image, Segmentation, and
+    Parametric Map.
+
+    Each image is associated with one or more
+    :class:`dicomslide.TotalPixelMatrix` instances, one for each unique
+    combination of channel and focal plane.
+    The definition of a channel is specific to a particular IOD. For example,
+    in case of VL Whole Slide Microscopy Image, a channel corresponds to an
+    optical path, whereas in case of a Segmentation, a channel corresponds to a
+    segment.
 
     Examples
     --------
@@ -33,7 +47,7 @@ class TiledImage:
     >>> print(image.metadata)  # pydicom.Dataset
     >>> print(image.metadata.BitsAllocated)
     >>> print(image.metadata.TotalPixelMatrixRows)
-    >>> pixel_matrix = image.get_tota_pixel_matrix(optical_path_index=0)
+    >>> pixel_matrix = image.get_tota_pixel_matrix(channel_index=0)
     >>> print(pixel_matrix.dtype)
     >>> print(pixel_matrix.shape)
     >>> print(pixel_matrix[:1000, 350:750, :])  # numpy.ndarray
@@ -84,25 +98,24 @@ class TiledImage:
             self._frame_positions = compute_frame_positions(self._metadata)
             focal_plane_indices = self._frame_positions[3]
             self._number_of_focal_planes = len(np.unique(focal_plane_indices))
-        self._optical_path_identifiers = tuple([
-            str(item.OpticalPathIdentifier)
-            for item in self._metadata.OpticalPathSequence
-        ])
-        self._number_of_optical_paths = len(self._optical_path_identifiers)
+
+        channels, get_channel_identifier = _get_channel_info(self._metadata)
+        self._channel_identifiers = tuple([ch.identifier for ch in channels])
+        self._number_of_channels = len(self._channel_identifiers)
 
         iterator = itertools.product(
-            range(self._number_of_optical_paths),
+            range(self._number_of_channels),
             range(self._number_of_focal_planes),
         )
         self._total_pixel_matrix_lut = {
-            (optical_path_index, focal_plane_index): TotalPixelMatrix(
+            (channel_index, focal_plane_index): TotalPixelMatrix(
                 client=self._client,
                 image_metadata=self._metadata,
-                optical_path_index=optical_path_index,
+                channel_index=channel_index,
                 focal_plane_index=focal_plane_index,
                 max_frame_cache_size=max_frame_cache_size
             )
-            for optical_path_index, focal_plane_index in iterator
+            for channel_index, focal_plane_index in iterator
         }
 
         encoded_dataset = encode_dataset(self._metadata)
@@ -122,28 +135,9 @@ class TiledImage:
         return self._metadata
 
     @property
-    def num_optical_paths(self) -> int:
-        """int: Number of optical paths"""
-        return self._number_of_optical_paths
-
-    # def find_optical_path(
-    #     self,
-    #     illumination_wavelength: Optional[float] = None,
-    #     stain: Optional[Code] = None
-    # ) -> int:
-    #     if illumination_wavelength is None and stain is None:
-    #         raise TypeError(
-    #             'At least one of the following arguments must be provided: '
-    #             '"illumination_wavelength", "stain".'
-    #         )
-    #     identifiers = set()
-    #     for item in self._metadata.OpticalPathSequence:
-    #         if illumination_wavelength is not None:
-    #             value = getattr(item, 'IlluminationWaveLength', None)
-    #             if value is not None and value == illumination_wavelength:
-    #                 identifiers.add(str(item.OpticalPathIdentifier))
-    #         else:
-    #             identifiers.add(str(item.OpticalPathIdentifier))
+    def num_channels(self) -> int:
+        """int: Number of channels"""
+        return self._number_of_channels
 
     def get_pixel_indices(
         self,
@@ -244,47 +238,48 @@ class TiledImage:
 
         return degrees
 
-    def get_optical_path_index(self, optical_path_identifier: str) -> int:
-        """Get index of an optical path.
+    def get_channel_index(self, channel_identifier: str) -> int:
+        """Get index of a channel.
+
+        The nature of the channel is specific to the SOP Class for the image.
+        For example, in case of DICOM VL Whole Slide Microscopy Image, a
+        channel is an optical path and in case of a DICOM Segmentation, a
+        channel is a segment.
 
         Parameters
         ----------
-        optical_path_identifier: str
-            Optical path identifier
+        channel_identifier: str
+            Identifier of a channel
 
         Returns
         -------
         int
-            Zero-based index into optical paths along the direction defined by
-            successive items of the Optical Path Sequence attribute. Values
-            must be in the range [0, Number of Optical Paths).
+            Zero-based index into channels along the direction defined by
+            successive items of the corresponding attribute.
 
         Raises
         ------
         ValueError
-            When no optical path is found for `optical_path_identifier`
+            When no channel is found for `channel_identifier`
 
         """
         try:
-            index = self._optical_path_identifiers.index(
-                optical_path_identifier
-            )
+            index = self._channel_identifiers.index(channel_identifier)
         except ValueError:
             raise ValueError(
                 f'Image "{self._metadata.SOPInstanceUID}" does not have an '
-                f'optical path with identifier "{optical_path_identifier}".'
+                f'optical path with identifier "{channel_identifier}".'
             )
         return index
 
-    def get_optical_path_identifier(self, optical_path_index: int) -> str:
+    def get_channel_identifier(self, channel_index: int) -> str:
         """Get identifier of an optical path.
 
         Parameters
         ----------
-        optical_path_index: int
-            Zero-based index into optical paths along the direction defined by
-            successive items of the Optical Path Sequence attribute. Values
-            must be in the range [0, Number of Optical Paths).
+        channel_index: int
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute.
 
         Returns
         -------
@@ -294,15 +289,15 @@ class TiledImage:
         Raises
         ------
         ValueError
-            When no optical path is found for `optical_path_index`
+            When no optical path is found for `channel_index`
 
         """
         try:
-            return self._optical_path_identifiers[optical_path_index]
+            return self._channel_identifiers[channel_index]
         except IndexError:
             raise ValueError(
-                f'Image "{self._metadata.SOPInstanceUID}" does not have an '
-                f'optical path with index {optical_path_index}.'
+                f'Image "{self._metadata.SOPInstanceUID}" does not have a '
+                f'channel {channel_index}.'
             )
 
     @property
@@ -423,17 +418,16 @@ class TiledImage:
 
     def get_total_pixel_matrix(
         self,
-        optical_path_index: int = 0,
+        channel_index: int = 0,
         focal_plane_index: int = 0
     ) -> TotalPixelMatrix:
         """Get total pixel matrix for a given optical path and focal plane.
 
         Parameters
         ----------
-        optical_path_index: int, optional
-            Zero-based index into optical paths along the direction defined by
-            successive items of the Optical Path Sequence attribute. Values
-            must be in the range [0, Number of Optical Paths).
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute.
         focal_plane_index: int, optional
             Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
@@ -447,12 +441,12 @@ class TiledImage:
 
         """
         if (
-            optical_path_index < 0 or
-            optical_path_index >= self.num_optical_paths
+            channel_index < 0 or
+            channel_index >= self.num_channels
         ):
             raise ValueError(
-                'Argument "optical_path_index" must be a zero-based index '
-                f'in range [0, {self.num_optical_paths}).'
+                'Argument "channel_index" must be a zero-based index '
+                f'in range [0, {self.num_channels}).'
             )
         if (
             focal_plane_index < 0 or
@@ -463,12 +457,12 @@ class TiledImage:
                 f'in range [0, {self.num_focal_planes}).'
             )
 
-        key = (optical_path_index, focal_plane_index)
+        key = (channel_index, focal_plane_index)
         try:
             return self._total_pixel_matrix_lut[key]
         except KeyError:
             raise ValueError(
                 'Could not find a total pixel matrix for '
-                f'optical path {optical_path_index} and '
+                f'optical path {channel_index} and '
                 f'focal plane {focal_plane_index}.'
             )

@@ -126,7 +126,7 @@ class TotalPixelMatrix:
         self,
         client: DICOMClient,
         image_metadata: Dataset,
-        optical_path_index: int = 0,
+        channel_index: int = 0,
         focal_plane_index: int = 0,
         max_frame_cache_size: int = 9,
         correct_color: bool = True
@@ -139,10 +139,9 @@ class TotalPixelMatrix:
             DICOMweb client
         image_metadata: pydicom.dataset.Dataset
             Metadata of a tiled DICOM image
-        optical_path_index: int, optional
-            Zero-based index into optical paths along the direction defined by
-            successive items of the Optical Path Sequence attribute. Values
-            must be in the range [0, Number of Optical Paths).
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute(s).
         focal_plane_index: int, optional
             Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
@@ -166,15 +165,15 @@ class TotalPixelMatrix:
         (
             matrix_positions,
             slide_offsets,
-            optical_path_indices,
+            channel_indices,
             focal_plane_indices,
         ) = compute_frame_positions(image_metadata)
 
-        num_optical_paths = len(np.unique(optical_path_indices))
-        if optical_path_index < 0 or optical_path_index >= num_optical_paths:
+        num_channels = len(np.unique(channel_indices))
+        if channel_index < 0 or channel_index >= num_channels:
             raise ValueError(
-                'Argument "optical_path_index" must be a zero-based index '
-                f'in range [0, {num_optical_paths}).'
+                'Argument "channel_index" must be a zero-based index '
+                f'in range [0, {num_channels}).'
             )
         num_focal_planes = len(np.unique(focal_plane_indices))
         if focal_plane_index < 0 or focal_plane_index >= num_focal_planes:
@@ -184,7 +183,7 @@ class TotalPixelMatrix:
             )
 
         frame_selection_index = np.logical_and(
-            optical_path_indices == optical_path_index,
+            channel_indices == channel_index,
             focal_plane_indices == focal_plane_index
         )
         self._tile_positions = matrix_positions[frame_selection_index, :]
@@ -196,7 +195,8 @@ class TotalPixelMatrix:
             self._tile_grid_indices[:, 0],
             self._tile_grid_indices[:, 1]
         ])
-        frame_indices = np.arange(int(self._metadata.NumberOfFrames))
+        self._num_frames = int(self._metadata.NumberOfFrames)
+        frame_indices = np.arange(self._num_frames)
         self._frame_indices = frame_indices[frame_selection_index]
         self._sorted_frame_indices = self._frame_indices[tile_sort_index]
         self._current_index = 0
@@ -209,7 +209,10 @@ class TotalPixelMatrix:
         self._max_frame_cache_size = int(max_frame_cache_size)
 
         if self._metadata.SamplesPerPixel == 3 and correct_color:
-            if hasattr(self._metadata.OpticalPathSequence[0], 'ICCProfile'):
+            if (
+                hasattr(self._metadata, 'OpticalPathSequence') and
+                hasattr(self._metadata.OpticalPathSequence[0], 'ICCProfile')
+            ):
                 icc_profile = self._metadata.OpticalPathSequence[0].ICCProfile
                 color_manager = hd.color.ColorManager(icc_profile)
                 self._transform_fn = color_manager.transform_frame
@@ -278,6 +281,11 @@ class TotalPixelMatrix:
         selected_frame_numbers = []
         for index in frame_indices:
             frame_number = index + 1
+            if frame_number > int(self._metadata.NumberOfFrames):
+                raise ValueError(
+                    f'Cannot retrieve frame #{index}. '
+                    f'Image contains only n={self._num_frames} frames.'
+                )
             if index not in self._cache:
                 selected_frame_numbers.append(frame_number)
             else:

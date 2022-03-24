@@ -40,7 +40,7 @@ def test_color(client):
     matrix = TotalPixelMatrix(
         client=client,
         image_metadata=image,
-        optical_path_index=0,
+        channel_index=0,
         focal_plane_index=0,
     )
     assert len(matrix) == int(image.NumberOfFrames)
@@ -108,7 +108,7 @@ def test_monochrome_multiple_optical_paths_and_multiple_focal_planes(client):
     matrix = TotalPixelMatrix(
         client=client,
         image_metadata=image,
-        optical_path_index=0,
+        channel_index=0,
         focal_plane_index=0,
     )
     assert len(matrix) == int(
@@ -143,7 +143,7 @@ def test_monochrome_multiple_optical_paths_and_multiple_focal_planes(client):
     matrix = TotalPixelMatrix(
         client=client,
         image_metadata=image,
-        optical_path_index=0,
+        channel_index=0,
         focal_plane_index=3,
     )
     assert matrix.ndim == 3

@@ -1,9 +1,10 @@
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Sequence, Tuple, Union
 
 import highdicom as hd
 import numpy as np
 from pydicom.dataset import Dataset
 
+from dicomslide._channel import _get_channel_info
 from dicomslide.utils import is_tiled_image
 
 
@@ -149,10 +150,12 @@ def compute_frame_positions(
         pixel of each frame from the origin of the slide coordinate system
         (frame of reference) in millimeter unit. Values are floating-point
         numbers in the range [-inf, inf].
-    optical_path_indices: numpy.ndarray
-        Zero-based index for each frame into optical paths along the direction
-        defined by successive items of the Optical Path Sequence attribute.
-        Values are integers in the range [0, Number of Optical Paths).
+    channel_indices: numpy.ndarray
+        Zero-based index for each frame into channels along the direction
+        defined by successive items of the appropriate attribute. In case of
+        a VL Whole Slide Microscopy Image, the attribute is the Optical Path
+        Sequence, and in case of Segmentation, the attribute is the Segment
+        Sequence.
     focal_plane_indices: numpy.ndarray
         Zero-based index for each frame into focal planes along depth direction
         from the glass slide towards the coverslip in the slide coordinate
@@ -164,22 +167,22 @@ def compute_frame_positions(
     if not is_tiled_image(image):
         raise ValueError('Argument "image" is not a a tiled image.')
 
-    optical_path_identifier_lut = {
-        str(item.OpticalPathIdentifier): i
-        for i, item in enumerate(image.OpticalPathSequence)
+    channels, get_channel_identifier = _get_channel_info(image)
+    channel_identifier_lut = {
+        str(ch.identifier): i
+        for i, ch in enumerate(channels)
     }
-    num_optical_paths = len(optical_path_identifier_lut)
+    num_channels = len(channels)
 
     num_frames = int(image.NumberOfFrames)
     focal_plane_indices = np.zeros((num_frames, ), dtype=int)
     matrix_positions = np.zeros((num_frames, 2), dtype=int)
     slide_positions = np.zeros((num_frames, 3), dtype=float)
     if hasattr(image, 'PerFrameFunctionalGroupsSequence'):
-        optical_path_indices = np.zeros((num_frames, ), dtype=int)
+        channel_indices = np.zeros((num_frames, ), dtype=int)
         for i in range(num_frames):
             frame_item = image.PerFrameFunctionalGroupsSequence[i]
             plane_pos_item = frame_item.PlanePositionSlideSequence[0]
-            optical_path_item = frame_item.OpticalPathIdentificationSequence[0]
             matrix_positions[i, :] = (
                 int(plane_pos_item.RowPositionInTotalImagePixelMatrix) - 1,
                 int(plane_pos_item.ColumnPositionInTotalImagePixelMatrix) - 1,
@@ -189,13 +192,13 @@ def compute_frame_positions(
                 float(plane_pos_item.YOffsetInSlideCoordinateSystem),
                 float(plane_pos_item.ZOffsetInSlideCoordinateSystem),
             )
-            optical_path_indices[i] = optical_path_identifier_lut[
-                optical_path_item.OpticalPathIdentifier
+            channel_indices[i] = channel_identifier_lut[
+                get_channel_identifier(frame_item)
             ]
     else:
-        optical_path_indices = np.repeat(
-            np.arange(num_optical_paths),
-            repeats=int(num_frames / num_optical_paths)
+        channel_indices = np.repeat(
+            np.arange(num_channels),
+            repeats=int(num_frames / num_channels)
         )
         plane_positions = hd.utils.compute_plane_position_slide_per_frame(image)
         for i in range(num_frames):
@@ -227,6 +230,6 @@ def compute_frame_positions(
     return (
         matrix_positions,
         slide_positions,
-        optical_path_indices,
+        channel_indices,
         focal_plane_indices,
     )
