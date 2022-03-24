@@ -3,6 +3,7 @@ import logging
 from collections import OrderedDict
 from typing import (
     Dict,
+    List,
     Sequence,
     Tuple,
     Union
@@ -90,24 +91,30 @@ class TotalPixelMatrix:
     corresponding image frames are dynamically retrieved from a DICOM store and
     decoded.
 
-    The caller can index instances of the class either using tile indices into
-    the flattened list of tiles in the total pixel matrix to get individual
-    tiles or pixel indices into the total pixel matrix to get a continous
-    region spanning one or more tiles.
+    A notable difference to NumPy array indexing is that a one-dimensional
+    index returns an individual tile of the total pixel matrix (i.e., a 2D
+    array) rather than an individual row of the total pixel matrix (i.e., a 1D
+    array).
+
+    The caller can index instances of the class either using one-dimensional
+    tile indices into the flattened list of tiles in the total pixel matrix to
+    get individual tiles or three-dimensional pixel indices (rows, columns, and
+    samples) into the total pixel matrix to get a continous region spanning one
+    or more tiles.
 
     Examples
     --------
-    >>> pixel_array = TotalPixelMatrix(...)
-    >>> print(pixel_array.dtype)
-    >>> print(pixel_array.ndim)
-    >>> print(pixel_array.shape)
-    >>> print(pixel_array.size)
-    >>> print(pixel_array[:256, 256:512, :])  # numpy.ndarray
-    >>> print(len(pixel_array))
-    >>> print(pixel_array[0])  # numpy.ndarray
-    >>> print(pixel_array[pixel_array.get_tile_index(2, 4)])  # numpy.ndarray
-    >>> print(pixel_array[[0, 1, 2, 5, 6, 7]])  # numpy.ndarray
-    >>> print(pixel_array[2:6])  # numpy.ndarray
+    >>> matrix = TotalPixelMatrix(...)
+    >>> print(matrix.dtype)
+    >>> print(matrix.ndim)
+    >>> print(matrix.shape)
+    >>> print(matrix.size)
+    >>> region = matrix[:256, 256:512, :]
+    >>> print(len(matrix))
+    >>> tile = matrix[0]
+    >>> tile = matrix[matrix.get_tile_index(2, 4)]
+    >>> tiles = matrix[[0, 1, 2, 5, 6, 7]]
+    >>> tiles = matrix[2:6]
 
     Warning
     -------
@@ -190,7 +197,7 @@ class TotalPixelMatrix:
             self._tile_grid_indices[:, 0],
             self._tile_grid_indices[:, 1]
         ])
-        frame_indices = np.arange(0, int(self._metadata.NumberOfFrames))
+        frame_indices = np.arange(int(self._metadata.NumberOfFrames))
         self._frame_indices = frame_indices[frame_selection_index]
         self._sorted_frame_indices = self._frame_indices[tile_sort_index]
         self._current_index = 0
@@ -333,6 +340,47 @@ class TotalPixelMatrix:
         return np.dtype(f'uint{self._metadata.BitsAllocated}')
 
     @property
+    def tile_size(self) -> int:
+        """int: Size of an invidual tile (rows x columns x samples)"""
+        return int(np.product(self.tile_shape))
+
+    @property
+    def tile_shape(self) -> Tuple[int, int, int]:
+        """Tuple[int, int, int]: Rows, Columns, and Samples per Pixel of an
+        individual tile
+
+        """
+        return (
+            self._rows,
+            self._cols,
+            int(self._metadata.SamplesPerPixel)
+        )
+
+    def get_tile_bounding_box(self, index: int) -> Tuple[
+        Tuple[int, int], Tuple[int, int]
+    ]:
+        """Get the bounding box of a tile.
+
+        Parameters
+        ----------
+        index: int
+            Tile index
+
+        Returns
+        -------
+        offset: Tuple[int, int]
+            Zero-based (row, column) pixel indices in the total pixel matrix
+        size: Tuple[int, int]
+            Height (rows) and width (columns) of the tile
+
+        """
+        r, c = self._tile_positions[index]
+        return (
+            (r, c),
+            (self._rows, self._cols),
+        )
+
+    @property
     def size(self) -> int:
         """int: Size (rows x columns x samples)"""
         return int(np.product(self.shape))
@@ -341,9 +389,9 @@ class TotalPixelMatrix:
     def shape(self) -> Tuple[int, int, int]:
         """Tuple[int, int, int]: Rows, Columns, and Samples per Pixel"""
         return (
-            self._metadata.TotalPixelMatrixRows,
-            self._metadata.TotalPixelMatrixColumns,
-            self._metadata.SamplesPerPixel
+            int(self._metadata.TotalPixelMatrixRows),
+            int(self._metadata.TotalPixelMatrixColumns),
+            int(self._metadata.SamplesPerPixel)
         )
 
     @property
@@ -360,7 +408,7 @@ class TotalPixelMatrix:
             Number of tiles
 
         """
-        return len(self._sorted_frame_indices)
+        return self._tile_positions.shape[0]
 
     def __iter__(self):
         """Iterate over tiles."""
@@ -659,9 +707,9 @@ class TotalPixelMatrix:
         frame_indices = self._sorted_frame_indices[indices]
         tiles = self._retrieve_and_decode_frames(frame_indices)
         if len(indices) > 1:
-            return np.stack([tiles[i] for i in indices])
+            return np.stack([tiles[i] for i in frame_indices])
         elif len(indices) == 1:
-            return tiles[indices[0]]
+            return [tiles[i] for i in frame_indices][0]
         else:
             raise IndexError(f'Could not find tiles: {indices}')
 

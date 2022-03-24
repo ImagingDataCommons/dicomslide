@@ -21,6 +21,7 @@ from pydicom._storage_sopclass_uids import VLWholeSlideMicroscopyImageStorage
 from scipy.ndimage import rotate
 
 from dicomslide.image import TiledImage
+from dicomslide.matrix import TotalPixelMatrix
 from dicomslide.pyramid import get_image_size, Pyramid
 from dicomslide.utils import (
     encode_dataset,
@@ -248,6 +249,62 @@ class Slide:
 
     def __hash__(self) -> int:
         return hash(self._quickhash)
+
+    def get_total_pixel_matrix(
+        self,
+        level: int,
+        optical_path_index: int = 0,
+        focal_plane_index: int = 0
+    ) -> TotalPixelMatrix:
+        """Get the total pixel matrix of a VOLUME or THUMBNAIL image.
+
+        Parameters
+        ----------
+        level: int
+            Zero-based index into pyramid levels
+        optical_path_index: int, optional
+            Zero-based index into optical paths along the direction defined by
+            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+        focal_plane_index: int, optional
+            Zero-based index into focal planes along depth direction from the
+            glass slide towards the coverslip in the slide coordinate system
+            specified by the Z Offset in Slide Coordinate System attribute of
+            VOLUME or THUMBNAIL images.
+
+        Returns
+        -------
+        dicomslide.TotalPixelMatrix
+            Total pixel matrix
+
+        """
+        volume_images = self.get_volume_images(
+            optical_path_index=optical_path_index,
+            focal_plane_index=focal_plane_index
+        )
+        try:
+            image = volume_images[level]
+        except IndexError:
+            raise IndexError(f'Slide does not have level {level}.')
+
+        # Each image may have one or more optical paths or focal planes and the
+        # image-level indices differ from the slide-level indices.
+        if image.num_optical_paths == 1 and image.num_focal_planes == 1:
+            matrix = image.get_total_pixel_matrix(
+                optical_path_index=0,
+                focal_plane_index=0
+            )
+        else:
+            image_optical_path_index = image.get_optical_path_index(
+                self.get_optical_path_identifier(optical_path_index)
+            )
+            image_focal_plane_index = image.get_focal_plane_index(
+                self.get_focal_plane_offset(focal_plane_index)
+            )
+            matrix = image.get_total_pixel_matrix(
+                optical_path_index=image_optical_path_index,
+                focal_plane_index=image_focal_plane_index
+            )
+        return matrix
 
     def get_volume_images(
         self,
@@ -522,36 +579,14 @@ class Slide:
         """
         logger.debug(
             f'get region of size {size} at offset {offset} '
-            f'at level {level} for image with optical path index '
-            f'{optical_path_index} and focal plane index {focal_plane_index}'
+            f'at level {level} for optical path {optical_path_index} and '
+            f'focal plane {focal_plane_index}'
         )
-        volume_images = self.get_volume_images(
+        matrix = self.get_total_pixel_matrix(
+            level=level,
             optical_path_index=optical_path_index,
             focal_plane_index=focal_plane_index
         )
-        try:
-            image = volume_images[level]
-        except IndexError:
-            raise IndexError(f'Slide does not have level {level}.')
-
-        # Each image may have one or more optical paths or focal planes and the
-        # image-level indices differ from the slide-level indices.
-        if image.num_optical_paths == 1 and image.num_focal_planes == 1:
-            matrix = image.get_total_pixel_matrix(
-                optical_path_index=0,
-                focal_plane_index=0
-            )
-        else:
-            image_optical_path_index = image.get_optical_path_index(
-                self.get_optical_path_identifier(optical_path_index)
-            )
-            image_focal_plane_index = image.get_focal_plane_index(
-                self.get_focal_plane_offset(focal_plane_index)
-            )
-            matrix = image.get_total_pixel_matrix(
-                optical_path_index=image_optical_path_index,
-                focal_plane_index=image_focal_plane_index
-            )
 
         row_index, col_index = offset
         col_factor, row_factor = self._pyramid[level].downsampling_factors
@@ -561,10 +596,9 @@ class Slide:
         row_stop = row_start + rows
         col_stop = col_start + cols
         logger.debug(
-            f'region [{row_start}:{row_stop}, {col_start}:{col_stop}, :] '
-            f'for optical path {optical_path_index} and '
+            f'get region [{row_start}:{row_stop}, {col_start}:{col_stop}, :] '
+            f'at level {level} for optical path {optical_path_index} and '
             f'focal plane {focal_plane_index} '
-            f'from image "{image.metadata.SOPInstanceUID}"'
         )
         return matrix[row_start:row_stop, col_start:col_stop, :]
 

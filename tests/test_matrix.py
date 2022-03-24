@@ -43,6 +43,7 @@ def test_color(client):
         optical_path_index=0,
         focal_plane_index=0,
     )
+    assert len(matrix) == int(image.NumberOfFrames)
     assert matrix.ndim == 3
     assert matrix.dtype == np.dtype('uint8')
     assert matrix.shape == (
@@ -62,6 +63,18 @@ def test_color(client):
     assert array.shape == (20, 10, image.SamplesPerPixel)
     array = matrix[:256, 256:512, 0]
     assert array.shape == (28, 0, 1)
+
+    offset, size = matrix.get_tile_bounding_box(0)
+    assert offset == (0, 0)
+    assert size == (image.Rows, image.Columns)
+
+    offset, size = matrix.get_tile_bounding_box(1)
+    assert offset == (0, image.Columns)
+    assert size == (image.Rows, image.Columns)
+
+    for tile in iter(matrix):
+        assert tile.shape == matrix.tile_shape
+        assert tile.dtype == matrix.dtype
 
 
 def test_monochrome_multiple_optical_paths_and_multiple_focal_planes(client):
@@ -98,11 +111,20 @@ def test_monochrome_multiple_optical_paths_and_multiple_focal_planes(client):
         optical_path_index=0,
         focal_plane_index=0,
     )
+    assert len(matrix) == int(
+        np.ceil(image.TotalPixelMatrixRows / image.Rows) *
+        np.ceil(image.TotalPixelMatrixColumns / image.Columns)
+    )
     assert matrix.ndim == 3
     assert matrix.dtype == np.dtype('uint16')
     assert matrix.shape == (
         image.TotalPixelMatrixRows,
         image.TotalPixelMatrixColumns,
+        image.SamplesPerPixel
+    )
+    assert matrix.tile_shape == (
+        image.Rows,
+        image.Columns,
         image.SamplesPerPixel
     )
     array = matrix[:, :, :]
@@ -131,6 +153,11 @@ def test_monochrome_multiple_optical_paths_and_multiple_focal_planes(client):
         image.TotalPixelMatrixColumns,
         image.SamplesPerPixel
     )
+    assert matrix.tile_shape == (
+        image.Rows,
+        image.Columns,
+        image.SamplesPerPixel
+    )
     array = matrix[:, :, :]
     assert array.shape == (
         image.TotalPixelMatrixRows,
@@ -141,3 +168,15 @@ def test_monochrome_multiple_optical_paths_and_multiple_focal_planes(client):
     assert array.shape == (20, 10, image.SamplesPerPixel)
     array = matrix[0:10, 2:10, 0]
     assert array.shape == (10, 8, 1)
+
+    offset, size = matrix.get_tile_bounding_box(0)
+    assert offset == (0, 0)
+    assert size == (image.Rows, image.Columns)
+
+    offset, size = matrix.get_tile_bounding_box(1)
+    assert offset == (0, image.Columns)
+    assert size == (image.Rows, image.Columns)
+
+    for tile in iter(matrix):
+        assert tile.shape == matrix.tile_shape
+        assert tile.dtype == matrix.dtype

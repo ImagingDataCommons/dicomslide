@@ -19,7 +19,6 @@ from dicomslide.tile import (
     assemble_total_pixel_matrix,
     compute_frame_positions,
     disassemble_total_pixel_matrix,
-    get_frame_contours,
 )
 
 
@@ -29,7 +28,6 @@ __all__ = [
     'compute_image_center_position',
     'disassemble_total_pixel_matrix',
     'find_slides',
-    'get_frame_contours',
     'get_image_pixel_spacing',
     'get_image_size',
     'ImageFlavors',

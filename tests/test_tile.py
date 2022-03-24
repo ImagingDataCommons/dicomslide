@@ -9,7 +9,6 @@ from dicomslide.tile import (
     assemble_total_pixel_matrix,
     compute_frame_positions,
     disassemble_total_pixel_matrix,
-    get_frame_contours,
 )
 
 from .dummy import VLWholeSlideMicroscopyImage
@@ -77,72 +76,6 @@ def test_assemble_disassemble_total_pixel_matrix():
     ):
         if r < (n_tile_rows - 1) and c < (n_tile_columns - 1):
             np.testing.assert_array_equal(tiles[i], retrieved_tiles[i])
-
-
-@pytest.mark.parametrize(
-    'dimension_organization_type',
-    [
-        hd.DimensionOrganizationTypeValues.TILED_FULL,
-        hd.DimensionOrganizationTypeValues.TILED_SPARSE,
-    ]
-)
-@pytest.mark.parametrize(
-    'mode',
-    ['color', 'grayscale']
-)
-def test_get_frame_contours(dimension_organization_type, mode):
-    if mode == 'color':
-        kwargs = dict(
-            number_of_focal_planes=1,
-            number_of_optical_paths=1,
-            samples_per_pixel=3,
-        )
-    else:
-        kwargs = dict(
-            number_of_focal_planes=1,
-            number_of_optical_paths=1,
-            samples_per_pixel=1,
-        )
-    image = VLWholeSlideMicroscopyImage(
-        study_instance_uid=hd.UID(),
-        series_instance_uid=hd.UID(),
-        sop_instance_uid=hd.UID(),
-        series_number=1,
-        instance_number=1,
-        extended_depth_of_field=False,
-        image_position=(0.0, 0.0, 0.0),
-        image_orientation=(0.0, 1.0, 0.0, 1.0, 0.0, 0.0),
-        dimension_organization_type=dimension_organization_type,
-        frame_of_reference_uid=hd.UID(),
-        container_id='1',
-        specimen_id='1',
-        specimen_uid=hd.UID(),
-        image_type=('DERIVED', 'PRIMARY', 'VOLUME', 'RESAMPLED'),
-        total_pixel_matrix_rows=128,
-        total_pixel_matrix_columns=64,
-        rows=32,
-        columns=32,
-        pixel_spacing=(0.004, 0.004),
-        spacing_between_slices=0.001,
-        transfer_syntax_uid=ExplicitVRLittleEndian,
-        **kwargs
-    )
-    contours = get_frame_contours(image)
-
-    n_tile_rows = int(np.ceil(image.TotalPixelMatrixRows / image.Rows))
-    n_tile_cols = int(np.ceil(image.TotalPixelMatrixColumns / image.Columns))
-
-    assert len(contours) == int(image.NumberOfFrames)
-
-    for i, (r, c) in enumerate(
-        itertools.product(range(n_tile_rows), range(n_tile_cols))
-    ):
-        assert contours[i].dtype == np.float64
-        assert contours[i].shape == (5, 3)
-        np.testing.assert_array_equal(
-            contours[i][0],
-            contours[i][-1],
-        )
 
 
 @pytest.mark.parametrize(
