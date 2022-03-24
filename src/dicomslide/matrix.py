@@ -3,7 +3,6 @@ import logging
 from collections import OrderedDict
 from typing import (
     Dict,
-    List,
     Sequence,
     Tuple,
     Union
