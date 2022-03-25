@@ -11,7 +11,7 @@ from pydicom.dataset import Dataset
 from dicomslide._channel import _get_channel_info
 from dicomslide.matrix import TotalPixelMatrix
 from dicomslide.tile import compute_frame_positions
-from dicomslide.utils import encode_dataset
+from dicomslide.utils import _encode_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ class TiledImage:
             for channel_index, focal_plane_index in iterator
         }
 
-        encoded_dataset = encode_dataset(self._metadata)
+        encoded_dataset = _encode_dataset(self._metadata)
         self._quickhash = sha256(encoded_dataset).hexdigest()
 
         self._ref2pix_transformer: Union[

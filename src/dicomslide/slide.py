@@ -17,14 +17,14 @@ import highdicom as hd
 import numpy as np
 from dicomweb_client import DICOMClient
 from pydicom import Dataset
+from pydicom.sr.coding import Code
 from pydicom._storage_sopclass_uids import VLWholeSlideMicroscopyImageStorage
 from scipy.ndimage import rotate
 
 from dicomslide.image import TiledImage
-from dicomslide.matrix import TotalPixelMatrix
 from dicomslide.pyramid import get_image_size, Pyramid
 from dicomslide.utils import (
-    encode_dataset,
+    _encode_dataset,
     is_volume_image,
     is_label_image,
     is_overview_image,
@@ -202,11 +202,11 @@ class Slide:
                 )
                 self._volume_images[volume_image_key] = tuple(volume_images)
                 encoded_image_metadata.extend([
-                    encode_dataset(image.metadata)
+                    _encode_dataset(image.metadata)
                     for images in volume_images
                 ])
         encoded_image_metadata.extend([
-            encode_dataset(image.metadata)
+            _encode_dataset(image.metadata)
             for image in self.overview_images + self.label_images
         ])
 
@@ -247,64 +247,127 @@ class Slide:
         # data to avoid having to retrieve the potentially large pixel data.
         self._quickhash = sha256(b''.join(encoded_image_metadata)).hexdigest()
 
+    def __repr__(self) -> str:
+        ref_images = self._volume_images[(0, 0)]
+        metadata = ref_images[0].metadata
+        return ''.join([
+            f'=== Slide ({self._quickhash}) ==='
+            f'Study Instance UID: {metadata.StudyInstanceUID}\n'
+            f'Container Identifier: {metadata.ContainerIdentifier}\n'
+            f'Frame of Reference UDI: {metadata.FrameOfReferenceUID}'
+        ])
+
     def __hash__(self) -> int:
         return hash(self._quickhash)
 
-    def get_total_pixel_matrix(
+    def find_optical_paths(
         self,
-        level: int,
-        optical_path_index: int = 0,
-        focal_plane_index: int = 0
-    ) -> TotalPixelMatrix:
-        """Get the total pixel matrix of a VOLUME or THUMBNAIL image.
+        identifier: Optional[str] = None,
+        description: Optional[str] = None,
+        illumination_wavelength: Optional[float] = None,
+        specimen_stain: Optional[Union[hd.sr.CodedConcept, Code]] = None
+    ) -> Tuple[int, ...]:
+        """Find optical paths.
 
         Parameters
         ----------
-        level: int
-            Zero-based index into pyramid levels
-        optical_path_index: int, optional
-            Zero-based index into optical paths along the direction defined by
-            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
-        focal_plane_index: int, optional
-            Zero-based index into focal planes along depth direction from the
-            glass slide towards the coverslip in the slide coordinate system
-            specified by the Z Offset in Slide Coordinate System attribute of
-            VOLUME or THUMBNAIL images.
+        identifier: Union[str, None], optional
+            Optical path identifier
+        description: Union[str, None], optional,
+            Optical path description
+        illumination_wavelength: Union[float, None], optional,
+            Optical path illumination wavelength
+        specimen_stain: Union[hd.sr.CodedConcept, Code, None], optional
+            Substance used for specimen staining
 
         Returns
         -------
-        dicomslide.TotalPixelMatrix
-            Total pixel matrix
+        Tuple[int, ...]
+            Zero-based index into optical paths along the direction defined by
+            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
 
         """
-        volume_images = self.get_volume_images(
-            optical_path_index=optical_path_index,
-            focal_plane_index=focal_plane_index
-        )
-        try:
-            image = volume_images[level]
-        except IndexError:
-            raise IndexError(f'Slide does not have level {level}.')
+        def does_optical_path_match(
+            item: Dataset,
+            identifier: Optional[str] = None,
+            description: Optional[str] = None,
+            illumination_wavelength: Optional[float] = None,
+        ) -> bool:
+            matches = []
+            if identifier is not None:
+                matches.append(item.OpticalPathIdentifier == identifier)
+            if description is not None:
+                if hasattr(item, 'OpticalPathDescription'):
+                    matches.append(item.OpticalPathDescription == description)
+                else:
+                    matches.append(False)
+            if illumination_wavelength is not None:
+                if hasattr(item, 'IlluminationWaveLength'):
+                    matches.append(
+                        item.IlluminationWaveLength == illumination_wavelength
+                    )
+                else:
+                    matches.append(False)
+            if len(matches) == 0:
+                return True
+            return any(matches)
 
-        # Each image may have one or more optical paths or focal planes and the
-        # image-level indices differ from the slide-level indices.
-        if image.num_channels == 1 and image.num_focal_planes == 1:
-            matrix = image.get_total_pixel_matrix(
-                channel_index=0,
-                focal_plane_index=0
+        def does_specimen_match(
+            item: Dataset,
+            specimen_stain: Optional[Union[hd.sr.CodedConcept, Code]] = None
+        ) -> bool:
+            matches = []
+            if specimen_stain is not None:
+                description = hd.SpecimenDescription.from_dataset(item)
+                is_specimen_staining_described = False
+                for step in description.specimen_preparation_steps:
+                    procedure = step.processing_procedure
+                    if isinstance(procedure, hd.SpecimenStaining):
+                        is_specimen_staining_described = True
+                        matches.append(specimen_stain in procedure.substances)
+                if not is_specimen_staining_described:
+                    matches.append(False)
+            if len(matches) == 0:
+                return True
+            return any(matches)
+
+        matching_optical_path_indices = set()
+        for key, images in self._volume_images.items():
+            optical_path_index = key[0]
+            optical_path_identifier = self.get_optical_path_identifier(
+                optical_path_index
             )
-        else:
-            image_optical_path_index = image.get_channel_index(
-                self.get_optical_path_identifier(optical_path_index)
+            if identifier is not None:
+                if optical_path_identifier == identifier:
+                    return (optical_path_index, )
+
+            ref_image = images[0]
+            image_optical_path_index = ref_image.get_channel_index(
+                optical_path_identifier
             )
-            image_focal_plane_index = image.get_focal_plane_index(
-                self.get_focal_plane_offset(focal_plane_index)
+            optical_path_item = ref_image.metadata.OpticalPathSequence[
+                image_optical_path_index
+            ]
+            specimen_description_item = (
+                ref_image
+                .metadata
+                .SpecimenDescriptionSequence[0]
             )
-            matrix = image.get_total_pixel_matrix(
-                channel_index=image_optical_path_index,
-                focal_plane_index=image_focal_plane_index
-            )
-        return matrix
+            if all([
+                does_optical_path_match(
+                    optical_path_item,
+                    identifier,
+                    description,
+                    illumination_wavelength
+                ),
+                does_specimen_match(
+                    specimen_description_item,
+                    specimen_stain
+                )
+            ]):
+                matching_optical_path_indices.add(optical_path_index)
+
+        return tuple(matching_optical_path_indices)
 
     def get_volume_images(
         self,
@@ -582,11 +645,33 @@ class Slide:
             f'at level {level} for optical path {optical_path_index} and '
             f'focal plane {focal_plane_index}'
         )
-        matrix = self.get_total_pixel_matrix(
-            level=level,
+        volume_images = self.get_volume_images(
             optical_path_index=optical_path_index,
             focal_plane_index=focal_plane_index
         )
+        try:
+            image = volume_images[level]
+        except IndexError:
+            raise IndexError(f'Slide does not have level {level}.')
+
+        # Each image may have one or more optical paths or focal planes and the
+        # image-level indices differ from the slide-level indices.
+        if image.num_channels == 1 and image.num_focal_planes == 1:
+            matrix = image.get_total_pixel_matrix(
+                channel_index=0,
+                focal_plane_index=0
+            )
+        else:
+            image_optical_path_index = image.get_channel_index(
+                self.get_optical_path_identifier(optical_path_index)
+            )
+            image_focal_plane_index = image.get_focal_plane_index(
+                self.get_focal_plane_offset(focal_plane_index)
+            )
+            matrix = image.get_total_pixel_matrix(
+                channel_index=image_optical_path_index,
+                focal_plane_index=image_focal_plane_index
+            )
 
         row_index, col_index = offset
         col_factor, row_factor = self._pyramid[level].downsampling_factors
@@ -842,6 +927,9 @@ class Slide:
 def find_slides(
     client: DICOMClient,
     study_instance_uid: Optional[str] = None,
+    patient_id: Optional[str] = None,
+    study_id: Optional[str] = None,
+    container_id: Optional[str] = None,
     max_frame_cache_size: int = 6,
     pyramid_tolerance: float = 0.1,
     fail_on_error: bool = True
@@ -854,6 +942,12 @@ def find_slides(
         DICOMweb client
     study_instance_uid: Union[str, None], optional
         DICOM Study Instance UID
+    patient_id: Union[str, None], optional
+        Patient identifier
+    study_id: Union[str, None], optional
+        Study identifier
+    container_id: Union[str, None], optional
+        Specimen container (slide) identifier
     max_frame_cache_size: int, optional
         Maximum number of frames that should be cached per image instance to
         avoid repeated retrieval requests
@@ -870,19 +964,19 @@ def find_slides(
     List[dicomslide.Slide]
         Digital slides
 
-    """
+    """  # noqa: E501
     # Find VL Whole Slide Microscopy Image instances
-    search_filters: Dict[str, str] = {
-        'SOPClassUID': VLWholeSlideMicroscopyImageStorage
-    }
+    search_filters: Dict[str, str] = {'Modality': 'SM'}
     if study_instance_uid is not None:
         search_filters['StudyInstanceUID'] = study_instance_uid
+    if patient_id is not None:
+        search_filters['PatientID'] = patient_id
+    if study_id is not None:
+        search_filters['StudyID'] = study_id
     instance_search_results = [
         Dataset.from_json(ds)
         for ds in client.search_for_instances(search_filters=search_filters)
     ]
-
-    # Retrieve metadata of each VL Whole Slide Microscopy Image instance
 
     def bulk_data_uri_handler(
         tag: str,
@@ -898,6 +992,7 @@ def find_slides(
         bulkdata = client.retrieve_bulkdata(uri)[0]
         return bulkdata
 
+    # Retrieve metadata of each VL Whole Slide Microscopy Image instance
     instance_metadata = [
         Dataset.from_json(
             client.retrieve_instance_metadata(
@@ -910,25 +1005,59 @@ def find_slides(
         for result in instance_search_results
     ]
 
-    # Group images by Study Instance UID, Container Identifier, and
-    # Frame of Reference UID.
+    # Group images by Container Identifier and Frame of Reference UID
     lut = defaultdict(list)
     for metadata in instance_metadata:
+        if metadata.SOPClassUID != VLWholeSlideMicroscopyImageStorage:
+            continue
+        if study_instance_uid is not None:
+            if metadata.StudyInstanceUID != study_instance_uid:
+                logger.debug(
+                    f'skip image "{metadata.SOPInstanceUID}" because it does '
+                    f'not match the Study Instance UID "{study_instance_uid}"'
+                )
+                continue
+        if patient_id is not None:
+            if metadata.PatientID != patient_id:
+                logger.debug(
+                    f'skip image "{metadata.SOPInstanceUID}" because it does '
+                    f'not match the Patient ID "{patient_id}"'
+                )
+                continue
+        if study_id is not None:
+            if metadata.StudyID != study_id:
+                logger.debug(
+                    f'skip image "{metadata.SOPInstanceUID}" because it does '
+                    f'not match the Study ID "{study_id}"'
+                )
+                continue
+        if container_id is not None:
+            if metadata.ContainerIdentifier != container_id:
+                logger.debug(
+                    f'skip image "{metadata.SOPInstanceUID}" because it does '
+                    f'not match the Container Identifier "{container_id}"'
+                )
+                continue
         try:
-            study_instance_uid = metadata.StudyInstanceUID
-            container_id = metadata.ContainerIdentifier
-            frame_of_reference_uid = metadata.FrameOfReferenceUID
+            current_container_id = metadata.ContainerIdentifier
+            current_frame_of_reference_uid = metadata.FrameOfReferenceUID
         except AttributeError:
             logger.warning(
                 f'skip image "{metadata.SOPInstanceUID}" because of missing '
                 'metadata elements'
             )
             continue
-        key = (study_instance_uid, container_id, frame_of_reference_uid)
+        key = (current_container_id, current_frame_of_reference_uid)
         lut[key].append(metadata)
 
     found_slides = []
-    for image_metadata in lut.values():
+    for key, image_metadata in lut.items():
+        ref_image = image_metadata[0]
+        logger.debug(
+            f'create slide for images of study "{ref_image.StudyInstanceUID}" '
+            f'for container "{ref_image.ContainerIdentifier}" '
+            f'in frame of reference "{ref_image.FrameOfReferenceUID}"'
+        )
         try:
             slide = Slide(
                 client=client,
@@ -942,7 +1071,7 @@ def find_slides(
             else:
                 ref_image = image_metadata[0]
                 logger.warning(
-                    'failed to create slides for images of study '
+                    'failed to create slide for images of study '
                     f'"{ref_image.StudyInstanceUID}" for container '
                     f'"{ref_image.ContainerIdentifier}" in frame of reference '
                     f'"{ref_image.FrameOfReferenceUID}" due to the following '

@@ -394,7 +394,7 @@ class Pyramid:
     def __repr__(self) -> str:
         parts = []
         for i, level in enumerate(self):
-            parts.append(f'=== level {i} ===')
+            parts.append(f'=== Pyramid Level {i} ===')
             parts.append(
                 'Total Pixel Matrix Rows/Columns: '
                 f'{level.total_pixel_matrix_dimensions}'

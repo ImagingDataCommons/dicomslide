@@ -31,6 +31,7 @@ def test_pyramid(dimension_organization_type, mode):
         shared_kwargs = dict(
             number_of_focal_planes=1,
             number_of_optical_paths=1,
+            optical_path_identifiers=['1'],
             samples_per_pixel=3,
             spacing_between_slices=0.001,
         )
@@ -38,6 +39,7 @@ def test_pyramid(dimension_organization_type, mode):
         shared_kwargs = dict(
             number_of_focal_planes=3,
             number_of_optical_paths=2,
+            optical_path_identifiers=['a', 'b'],
             samples_per_pixel=1,
             spacing_between_slices=0.001,
         )

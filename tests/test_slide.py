@@ -34,6 +34,9 @@ def generate_test_images(
             container_id = str(np.random.choice(range(100)))
             specimen_id = str(np.random.choice(range(100)))
             specimen_uid = hd.UID()
+            optical_path_identifiers = [
+                str(i + 1) for i in range(number_of_optical_paths)
+            ]
             image_kwargs = (
                 dict(
                     image_type=('ORIGINAL', 'PRIMARY', 'VOLUME', 'NONE'),
@@ -45,6 +48,7 @@ def generate_test_images(
                     spacing_between_slices=0.001,
                     number_of_focal_planes=number_of_focal_planes,
                     number_of_optical_paths=number_of_optical_paths,
+                    optical_path_identifiers=optical_path_identifiers,
                     samples_per_pixel=samples_per_pixel,
                     transfer_syntax_uid=transfer_syntax_uid
                 ),
@@ -58,6 +62,7 @@ def generate_test_images(
                     spacing_between_slices=0.001,
                     number_of_focal_planes=number_of_focal_planes,
                     number_of_optical_paths=number_of_optical_paths,
+                    optical_path_identifiers=optical_path_identifiers,
                     samples_per_pixel=samples_per_pixel,
                     transfer_syntax_uid=transfer_syntax_uid
                 ),
@@ -71,6 +76,7 @@ def generate_test_images(
                     spacing_between_slices=0.001,
                     number_of_focal_planes=number_of_focal_planes,
                     number_of_optical_paths=number_of_optical_paths,
+                    optical_path_identifiers=optical_path_identifiers,
                     samples_per_pixel=samples_per_pixel,
                     transfer_syntax_uid=transfer_syntax_uid
                 ),
@@ -84,6 +90,7 @@ def generate_test_images(
                     spacing_between_slices=0.001,
                     number_of_focal_planes=number_of_focal_planes,
                     number_of_optical_paths=number_of_optical_paths,
+                    optical_path_identifiers=optical_path_identifiers,
                     samples_per_pixel=samples_per_pixel,
                     transfer_syntax_uid=transfer_syntax_uid
                 ),
@@ -96,6 +103,7 @@ def generate_test_images(
                     pixel_spacing=(0.003, 0.003),
                     number_of_focal_planes=1,
                     number_of_optical_paths=1,
+                    optical_path_identifiers=['1'],
                     samples_per_pixel=3,
                     transfer_syntax_uid=JPEGBaseline8Bit
                 ),
@@ -108,6 +116,7 @@ def generate_test_images(
                     pixel_spacing=(0.003, 0.003),
                     number_of_focal_planes=1,
                     number_of_optical_paths=1,
+                    optical_path_identifiers=['1'],
                     samples_per_pixel=3,
                     transfer_syntax_uid=JPEGBaseline8Bit
                 ),
@@ -157,12 +166,34 @@ def test_color_images(client, dimension_organization_type):
     for datasets in groups.values():
         client.store_instances(datasets)
 
+    found_slides = find_slides(
+        client,
+        study_instance_uid=datasets[0].StudyInstanceUID
+    )
+    assert len(found_slides) == 2
+    found_slides = find_slides(
+        client,
+        study_instance_uid='1.2.3.4'
+    )
+    assert len(found_slides) == 0
+
+    found_slides = find_slides(
+        client,
+        container_id=datasets[0].ContainerIdentifier
+    )
+    assert len(found_slides) == 1
+    found_slides = find_slides(
+        client,
+        container_id='foo'
+    )
+    assert len(found_slides) == 0
+
     found_slides = find_slides(client)
+    assert len(found_slides) == len(groups)
 
     expected_num_levels = 4
     expected_downsampling_factors = (1.0, 2.0, 4.0, 8.0)
 
-    assert len(found_slides) == len(groups)
     for slide in found_slides:
         assert isinstance(slide, Slide)
         assert slide.num_optical_paths == expected_num_optical_paths
@@ -189,6 +220,10 @@ def test_color_images(client, dimension_organization_type):
         ])
         assert len(slide.label_images) == 1
         assert len(slide.overview_images) == 1
+
+        assert len(slide.find_optical_paths(identifier='1')) == 1
+        assert len(slide.find_optical_paths(identifier='2')) == 0
+
         np.testing.assert_array_equal(
             slide.get_image_region(
                 offset=(0, 0),
@@ -358,24 +393,28 @@ def test_grayscale_images(client):
         number_of_focal_planes=expected_num_focal_planes,
         samples_per_pixel=expected_samples_per_pixel,
         transfer_syntax_uid=JPEG2000Lossless,
-        dimension_organization_type=hd.DimensionOrganizationTypeValues.TILED_SPARSE
+        dimension_organization_type=(
+            hd.DimensionOrganizationTypeValues.TILED_SPARSE
+        )
     )
 
     for datasets in groups.values():
         client.store_instances(datasets)
 
     found_slides = find_slides(client)
+    assert len(found_slides) == len(groups)
 
     expected_num_levels = 4
     expected_downsampling_factors = (1.0, 2.0, 4.0, 8.0)
 
-    assert len(found_slides) == len(groups)
     for slide in found_slides:
         assert isinstance(slide, Slide)
         assert slide.num_optical_paths == expected_num_optical_paths
         assert slide.num_focal_planes == expected_num_focal_planes
         assert slide.num_levels == expected_num_levels
         assert slide.downsampling_factors == expected_downsampling_factors
+        assert len(slide.find_optical_paths(identifier='1')) == 1
+
         for optical_path_index in range(expected_num_optical_paths):
             for focal_plane_index in range(expected_num_focal_planes):
                 volume_images = slide.get_volume_images(

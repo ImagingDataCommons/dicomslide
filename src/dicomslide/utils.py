@@ -1,6 +1,7 @@
 from io import BytesIO
 
 from pydicom.dataset import Dataset
+from pydicom.filewriter import dcmwrite
 
 from dicomslide.enum import ImageFlavors
 
@@ -109,7 +110,7 @@ def is_overview_image(dataset: Dataset) -> bool:
     return False
 
 
-def encode_dataset(dataset: Dataset) -> bytes:
+def _encode_dataset(dataset: Dataset) -> bytes:
     """Encode DICOM dataset.
 
     Parameters
@@ -126,7 +127,14 @@ def encode_dataset(dataset: Dataset) -> bytes:
     clone = Dataset(dataset)
     clone.is_little_endian = True
     clone.is_implicit_VR = False
+    # Only encode the Data Set.
+    if hasattr(clone, 'file_meta'):
+        del clone.file_meta
+    # Some servers may erroursly include these Data Elements into the Data Set
+    # instead of the File Meta Information.
+    for element in clone.group_dataset(0x0002):
+        del clone[element.tag]
     with BytesIO() as fp:
-        clone.save_as(fp)
+        dcmwrite(fp, clone, write_like_original=True)
         encoded_value = fp.getvalue()
     return encoded_value

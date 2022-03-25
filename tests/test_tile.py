@@ -94,12 +94,14 @@ def test_compute_frame_positions(dimension_organization_type, mode):
         kwargs = dict(
             number_of_focal_planes=1,
             number_of_optical_paths=1,
+            optical_path_identifiers=['1'],
             samples_per_pixel=3,
         )
     else:
         kwargs = dict(
             number_of_focal_planes=4,
             number_of_optical_paths=3,
+            optical_path_identifiers=['a', 'b', 'c'],
             samples_per_pixel=1,
         )
     image = VLWholeSlideMicroscopyImage(

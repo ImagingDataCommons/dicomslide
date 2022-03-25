@@ -1,7 +1,7 @@
 """Dummy DICOM data sets for testing purposes."""
 import itertools
 from datetime import datetime
-from typing import List, Tuple, Union
+from typing import List, Sequence, Tuple, Union
 
 import numpy as np
 import highdicom as hd
@@ -38,6 +38,7 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
         samples_per_pixel: int,
         number_of_focal_planes: int,
         number_of_optical_paths: int,
+        optical_path_identifiers: Sequence[int],
         extended_depth_of_field: bool,
         pixel_spacing: Tuple[float, float],
         image_position: Tuple[float, float, float],
@@ -200,9 +201,9 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
                 "Unsupported number of optical paths for "
                 "specified photometric interpretation."
             )
-        for i in range(number_of_optical_paths):
+        for i, optical_path_id in enumerate(optical_path_identifiers):
             optical_path_item = Dataset()
-            optical_path_item.OpticalPathIdentifier = str(i + 1)
+            optical_path_item.OpticalPathIdentifier = str(optical_path_id)
             if self.PhotometricInterpretation == "MONOCHROME2":
                 optical_path_item.IlluminationWaveLength = wavelengths[i]
                 optical_path_item.IlluminationTypeCodeSequence = [
@@ -416,7 +417,9 @@ class VLWholeSlideMicroscopyImage(hd.SOPClass):
                 ]
 
                 path_id_item = Dataset()
-                path_id_item.OpticalPathIdentifier = str(c_index + 1)
+                path_id_item.OpticalPathIdentifier = str(
+                    optical_path_identifiers[c_index]
+                )
 
                 pffg_item = Dataset()
                 pffg_item.FrameContentSequence = [frame_content_item]
