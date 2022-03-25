@@ -195,6 +195,8 @@ class TotalPixelMatrix:
             self._tile_grid_indices[:, 0],
             self._tile_grid_indices[:, 1]
         ])
+        self._tile_grid_rows = int(np.max(self._tile_grid_indices[:, 0])) + 1
+        self._tile_grid_cols = int(np.max(self._tile_grid_indices[:, 1])) + 1
         self._num_frames = int(self._metadata.NumberOfFrames)
         frame_indices = np.arange(self._num_frames)
         self._frame_indices = frame_indices[frame_selection_index]
@@ -347,14 +349,27 @@ class TotalPixelMatrix:
         return np.dtype(f'uint{self._metadata.BitsAllocated}')
 
     @property
+    def num_tiles(self) -> int:
+        """int: Number of tiles"""
+        return int(np.product(self.tile_grid_shape))
+
+    @property
+    def tile_grid_shape(self) -> Tuple[int, int]:
+        """Tuple[int, int]: Number of tiles along the column (top to bottom)
+        and row (left to right) direction of the tile grid
+
+        """
+        return (self._tile_grid_rows, self._tile_grid_cols)
+
+    @property
     def tile_size(self) -> int:
         """int: Size of an invidual tile (rows x columns x samples)"""
         return int(np.product(self.tile_shape))
 
     @property
     def tile_shape(self) -> Tuple[int, int, int]:
-        """Tuple[int, int, int]: Rows, Columns, and Samples per Pixel of an
-        individual tile
+        """Tuple[int, int, int]: Number of pixel rows, pixel columns, and
+        samples per pixel of an individual tile
 
         """
         return (

@@ -47,11 +47,31 @@ def test_color(client):
     assert len(matrix) == int(image.NumberOfFrames)
     assert matrix.ndim == 3
     assert matrix.dtype == np.dtype('uint8')
+    assert matrix.size == np.product([
+        image.TotalPixelMatrixRows,
+        image.TotalPixelMatrixColumns,
+        image.SamplesPerPixel,
+    ])
     assert matrix.shape == (
         image.TotalPixelMatrixRows,
         image.TotalPixelMatrixColumns,
-        image.SamplesPerPixel
+        image.SamplesPerPixel,
     )
+    assert matrix.tile_size == np.product([
+        image.Rows,
+        image.Columns,
+        image.SamplesPerPixel,
+    ])
+    assert matrix.tile_shape == (
+        image.Rows,
+        image.Columns,
+        image.SamplesPerPixel,
+    )
+    assert matrix.tile_grid_shape == (
+        int(np.ceil(image.TotalPixelMatrixRows / image.Rows)),
+        int(np.ceil(image.TotalPixelMatrixColumns / image.Columns)),
+    )
+
     array = matrix[:, :, :]
     assert array.ndim == 3
     assert array.dtype == np.dtype('uint8')
