@@ -452,13 +452,30 @@ class TotalPixelMatrix:
         self._current_index += 1
         return self[index]
 
+    def get_tile_position(self, index: int) -> Tuple[int, int]:
+        """Get position of a tile.
+
+        Parameters
+        ----------
+        index: int
+            Zero-based index of the tile in the flattened total pixel matrix
+
+        Returns
+        -------
+        Tuple[int, int]
+            Zero-based (row, column) index of a tile in the tile grid
+
+        """
+        position = self._tile_grid_indices[index, :]
+        return (int(position[0]), int(position[1]))
+
     def get_tile_index(self, position: Tuple[int, int]) -> int:
         """Get index of a tile.
 
         Parameters
         ----------
         position: Tuple[int, int]
-            Zero-based (column, row) index of a tile in the tile grid
+            Zero-based (row, column) index of a tile in the tile grid
 
         Returns
         -------
