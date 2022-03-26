@@ -2,7 +2,7 @@ __version__ = '0.1.0'
 
 from dicomslide.enum import ImageFlavors
 from dicomslide.image import TiledImage
-from dicomslide.matrix import TotalPixelMatrix
+from dicomslide.matrix import TotalPixelMatrix, TotalPixelMatrixRegionIterator
 from dicomslide.pyramid import (
     compute_image_center_position,
     get_image_pixel_spacing,
@@ -41,4 +41,5 @@ __all__ = [
     'sort_images_by_size',
     'TiledImage',
     'TotalPixelMatrix',
+    'TotalPixelMatrixRegionIterator',
 ]

@@ -2,7 +2,10 @@ import highdicom as hd
 import numpy as np
 from pydicom.uid import JPEGBaseline8Bit, JPEG2000Lossless
 
-from dicomslide.matrix import TotalPixelMatrix
+from dicomslide.matrix import (
+    TotalPixelMatrix,
+    TotalPixelMatrixRegionIterator,
+)
 
 from .dummy import VLWholeSlideMicroscopyImage
 
@@ -87,6 +90,8 @@ def test_color(client):
 
     assert matrix.get_tile_position(0) == (0, 0)
     assert matrix.get_tile_position(1) == (0, 1)
+    assert matrix.get_tile_index((0, 0)) == 0
+    assert matrix.get_tile_index((0, 1)) == 1
 
     offset, size = matrix.get_tile_bounding_box(0)
     assert offset == (0, 0)
@@ -205,3 +210,50 @@ def test_monochrome_multiple_optical_paths_and_multiple_focal_planes(client):
     for tile in iter(matrix):
         assert tile.shape == matrix.tile_shape
         assert tile.dtype == matrix.dtype
+
+
+def test_region_iterator(client):
+    image = VLWholeSlideMicroscopyImage(
+        study_instance_uid=hd.UID(),
+        series_instance_uid=hd.UID(),
+        sop_instance_uid=hd.UID(),
+        series_number=2,
+        instance_number=2,
+        rows=4,
+        columns=6,
+        total_pixel_matrix_rows=30,
+        total_pixel_matrix_columns=28,
+        number_of_focal_planes=1,
+        number_of_optical_paths=1,
+        optical_path_identifiers=['1'],
+        samples_per_pixel=3,
+        image_type=('ORIGINAL', 'PRIMARY', 'VOLUME', 'NONE'),
+        extended_depth_of_field=False,
+        pixel_spacing=(0.001, 0.001),
+        image_position=(0.0, 0.0, 0.0),
+        image_orientation=(0.0, 1.0, 0.0, 1.0, 0.0, 0.0),
+        dimension_organization_type=TILED_FULL,
+        transfer_syntax_uid=JPEGBaseline8Bit,
+        frame_of_reference_uid=hd.UID(),
+        container_id='1',
+        specimen_id='1',
+        specimen_uid=hd.UID()
+    )
+    client.store_instances(datasets=[image])
+
+    matrix = TotalPixelMatrix(
+        client=client,
+        image_metadata=image,
+        channel_index=0,
+        focal_plane_index=0,
+    )
+
+    iterator = TotalPixelMatrixRegionIterator(
+        matrix=matrix,
+        padding=2,
+        region_dimensions=(6, 10)
+    )
+    for padded_region in iterator:
+        assert padded_region.shape == iterator.padded_region_shape
+        region = iterator.extract_region(padded_region)
+        assert region.shape == iterator.region_shape

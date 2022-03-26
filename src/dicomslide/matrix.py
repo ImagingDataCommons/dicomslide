@@ -783,3 +783,225 @@ class TotalPixelMatrix:
                 if not isinstance(key[0], int):
                     raise TypeError(error_message)
             return self._read_tiles(key)
+
+
+class TotalPixelMatrixRegionIterator:
+
+    """Class for iterating over regions in a total pixel matrix."""
+
+    def __init__(
+        self,
+        matrix: TotalPixelMatrix,
+        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]],
+        region_dimensions: Tuple[int, int]
+    ):
+        """
+
+        Parameters
+        ----------
+        matrix: dicomslide.TotalPixelMatrix
+            Total pixel matrix
+        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]]
+            Padding on each border. If a single integer is provided, the value
+            is used to pad all four with the same number of pixels. If a
+            sequence of length 2 is provided, the two values are used to pad
+            the left/right and top/bottom border, respectively. If a sequence
+            of length 4 is provided, the four values are used to pad the left,
+            top, right, and bottom borders respectively.
+        region_dimensions: Tuple[int, int]
+            Region height (rows) and width (columns)
+
+        """
+        self._matrix = matrix
+        self._padding: Tuple[int, int, int, int]
+        if isinstance(padding, int):
+            self._padding = (padding, padding, padding, padding)
+        elif isinstance(padding, tuple):
+            if len(padding) == 2:
+                self._padding = (padding[0], padding[1], padding[0], padding[1])
+            elif len(padding) == 4:
+                self._padding = (
+                    padding[0],
+                    padding[1],
+                    padding[2],  # type: ignore
+                    padding[3],  # type: ignore
+                )
+            else:
+                raise ValueError(
+                    'If argument "padding" is a tuple, its length must be '
+                    'either 2 or 4.'
+                )
+        else:
+            raise TypeError(
+                'Argument "padding" must be either an integer or a tuple.'
+            )
+        self._region_shape = (
+            region_dimensions[0],
+            region_dimensions[1],
+            matrix.tile_shape[2]
+        )
+        self._region_grid_shape = (
+            int(np.ceil(matrix.shape[0] / self._region_shape[0])),
+            int(np.ceil(matrix.shape[1] / self._region_shape[1])),
+        )
+        self._region_grid_coordinates = np.array([
+            (r, c)
+            for r, c in itertools.product(
+                range(self._region_grid_shape[0]),
+                range(self._region_grid_shape[1]),
+            )
+        ])
+        self._current_index = 0
+
+    def __len__(self):
+        return self._region_grid_coordinates.shape[0]
+
+    def __iter__(self):
+        self._current_index = 0
+        return self
+
+    def __next__(self):
+        if self._current_index >= len(self):
+            raise StopIteration
+        index = int(self._current_index)
+        self._current_index += 1
+        return self[index]
+
+    @property
+    def matrix(self) -> TotalPixelMatrix:
+        """dicomslide.TotalPixelMatrix: Total pixel matrix"""
+        return self._matrix
+
+    @property
+    def padding(self) -> Tuple[int, int, int, int]:
+        """Tuple[int, int, int, int]: Padding at the left, top, right, and
+        bottom of the region
+
+        """
+        return self._padding
+
+    @property
+    def region_shape(self) -> Tuple[int, int, int]:
+        """Tuple[int, int, int]: Number of pixel rows, pixel columns, and
+        samples per pixel of a region
+
+        """
+        return self._region_shape
+
+    @property
+    def padded_region_shape(self) -> Tuple[int, int, int]:
+        """Tuple[int, int, int]: Number of pixel rows, pixel columns, and
+        samples per pixel of a region
+
+        """
+        left, top, right, bottom = self.padding
+        return (
+            self.region_shape[0] + top + bottom,
+            self.region_shape[1] + left + right,
+            self.matrix.tile_shape[2]
+        )
+
+    def extract_region(self, padded_region: np.ndarray) -> np.ndarray:
+        """Extract pixels of region from a padded region.
+
+        Parameters
+        ----------
+        padded_region: numpy.ndarray
+            Image region containing the pixels of the tile of interest
+
+        Returns
+        -------
+        numpy.ndarray
+            Pixels of region
+
+        """
+        if padded_region.shape != self.padded_region_shape:
+            raise ValueError(
+                f'Padded region has wrong shape: {padded_region.shape} '
+                f'instead of expected {self.padded_region_shape}.'
+            )
+        left, top, right, bottom = self.padding
+        return padded_region[left:-right, top:-bottom, :]
+
+    def __getitem__(self, index: int) -> np.ndarray:
+        """Get region for a tile.
+
+        The region includes the pixels of the tile and potentially parts of
+        additional frames to the left, top, right, and bottom of the frame. How
+        many pixels of neighboring tiles are included in the region depends on
+        the value of the `padding` attribute.
+
+        Parameters
+        ----------
+        index: int
+            Zero-based index of the tile
+
+        Returns
+        -------
+        numpy.ndarray
+            Image region including pixels of the tile and potentially
+            parts of neighboring tiles
+
+        """
+        region_rows, region_cols, _ = self.region_shape
+        padded_region_rows, padded_region_cols, _ = self.padded_region_shape
+        padded_region = np.zeros(
+            self.padded_region_shape,
+            dtype=self.matrix.dtype
+        )
+
+        r, c = self._region_grid_coordinates[index, :]
+        left, top, right, bottom = self.padding
+        total_row_start = r * region_rows
+        total_col_start = c * region_cols
+        total_rows, total_cols, _ = self.matrix.shape
+
+        if total_row_start == 0:
+            padded_region_row_start = top
+            adjusted_total_row_start = total_row_start
+            adjusted_total_row_end = (
+                adjusted_total_row_start + padded_region_rows - top
+            )
+        else:
+            padded_region_row_start = 0
+            adjusted_total_row_start = total_row_start - top
+            adjusted_total_row_end = (
+                adjusted_total_row_start + padded_region_rows
+            )
+        row_diff = adjusted_total_row_end - total_rows
+        if row_diff > 0:
+            padded_region_row_end = -row_diff
+            adjusted_total_row_end -= row_diff
+        else:
+            padded_region_row_end = None
+
+        if total_col_start == 0:
+            padded_region_col_start = left
+            adjusted_total_col_start = total_col_start
+            adjusted_total_col_end = (
+                adjusted_total_col_start + padded_region_cols - left
+            )
+        else:
+            padded_region_col_start = 0
+            adjusted_total_col_start = total_col_start - left
+            adjusted_total_col_end = (
+                adjusted_total_col_start + padded_region_cols
+            )
+        col_diff = adjusted_total_col_end - total_cols
+        if col_diff > 0:
+            padded_region_col_end = -col_diff
+            adjusted_total_col_end -= col_diff
+        else:
+            padded_region_col_end = None
+
+        padded_region[
+            padded_region_row_start:padded_region_row_end,
+            padded_region_col_start:padded_region_col_end,
+            :
+        ] = self.matrix[
+            adjusted_total_row_start:adjusted_total_row_end,
+            adjusted_total_col_start:adjusted_total_col_end,
+            :
+        ]
+
+        return padded_region
