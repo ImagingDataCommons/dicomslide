@@ -3,6 +3,7 @@ import logging
 from collections import OrderedDict
 from typing import (
     Dict,
+    Optional,
     Sequence,
     Tuple,
     Union
@@ -785,15 +786,16 @@ class TotalPixelMatrix:
             return self._read_tiles(key)
 
 
-class TotalPixelMatrixRegionIterator:
+class TotalPixelMatrixSampler:
 
-    """Class for iterating over regions in a total pixel matrix."""
+    """Class for sampling regions of a total pixel matrix."""
 
     def __init__(
         self,
         matrix: TotalPixelMatrix,
-        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]],
-        region_dimensions: Tuple[int, int]
+        region_dimensions: Tuple[int, int],
+        bounding_box: Optional[Tuple[Tuple[int, int], Tuple[int, int]]] = None,
+        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]] = 0,
     ):
         """
 
@@ -801,17 +803,21 @@ class TotalPixelMatrixRegionIterator:
         ----------
         matrix: dicomslide.TotalPixelMatrix
             Total pixel matrix
-        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]]
-            Padding on each border. If a single integer is provided, the value
+        region_dimensions: Tuple[int, int]
+            Height (rows) and width (columns) of sampled regions
+        bounding_box: Union[Tuple[Tuple[int, int], Tuple[int, int]], None], optional
+            Bounding box of region of interest within total pixel matrix from
+            which smaller regions should be sampled
+        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]], optional
+            Padding on each border of the sampled region using pixels from
+            neighboring regions. If a single integer is provided, the value
             is used to pad all four with the same number of pixels. If a
             sequence of length 2 is provided, the two values are used to pad
             the left/right and top/bottom border, respectively. If a sequence
             of length 4 is provided, the four values are used to pad the left,
             top, right, and bottom borders respectively.
-        region_dimensions: Tuple[int, int]
-            Region height (rows) and width (columns)
 
-        """
+        """  # noqa: E501
         self._matrix = matrix
         self._padding: Tuple[int, int, int, int]
         if isinstance(padding, int):
@@ -835,6 +841,19 @@ class TotalPixelMatrixRegionIterator:
             raise TypeError(
                 'Argument "padding" must be either an integer or a tuple.'
             )
+        if bounding_box is not None:
+            offset, size = bounding_box
+            if (
+                (offset[0] + size[0]) > matrix.shape[0] or
+                (offset[1] + size[1]) > matrix.shape[1]
+            ):
+                raise ValueError(
+                    'Bounding box must not extend beyond total pixel matrix.'
+                )
+        else:
+            offset = (0, 0)
+            size = (matrix.shape[0], matrix.shape[0])
+        self._bounding_box = (offset, size)
         self._region_shape = (
             region_dimensions[0],
             region_dimensions[1],
@@ -851,10 +870,33 @@ class TotalPixelMatrixRegionIterator:
                 range(self._region_grid_shape[1]),
             )
         ])
+
+        box_start_grid_coordinates = (
+            int(np.floor(offset[0] / self._region_shape[0])),
+            int(np.floor(offset[1] / self._region_shape[1])),
+        )
+        box_end_grid_coordinates = (
+            int(np.ceil((offset[0] + size[0]) / self._region_shape[0])),
+            int(np.ceil((offset[1] + size[1]) / self._region_shape[1])),
+        )
+        self._selected_region_grid_coordinates = np.array([
+            (r, c)
+            for r, c in itertools.product(
+                range(
+                    box_start_grid_coordinates[0],
+                    box_end_grid_coordinates[0],
+                ),
+                range(
+                    box_start_grid_coordinates[1],
+                    box_end_grid_coordinates[1],
+                )
+            )
+        ])
+
         self._current_index = 0
 
     def __len__(self):
-        return self._region_grid_coordinates.shape[0]
+        return self._selected_region_grid_coordinates.shape[0]
 
     def __iter__(self):
         self._current_index = 0
@@ -921,7 +963,7 @@ class TotalPixelMatrixRegionIterator:
                 f'instead of expected {self.padded_region_shape}.'
             )
         left, top, right, bottom = self.padding
-        return padded_region[left:-right, top:-bottom, :]
+        return padded_region[top:-bottom, left:-right, :]
 
     def __getitem__(self, index: int) -> np.ndarray:
         """Get region for a tile.
@@ -950,7 +992,7 @@ class TotalPixelMatrixRegionIterator:
             dtype=self.matrix.dtype
         )
 
-        r, c = self._region_grid_coordinates[index, :]
+        r, c = self._selected_region_grid_coordinates[index, :]
         left, top, right, bottom = self.padding
         total_row_start = r * region_rows
         total_col_start = c * region_cols

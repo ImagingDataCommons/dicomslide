@@ -4,7 +4,7 @@ from pydicom.uid import JPEGBaseline8Bit, JPEG2000Lossless
 
 from dicomslide.matrix import (
     TotalPixelMatrix,
-    TotalPixelMatrixRegionIterator,
+    TotalPixelMatrixSampler,
 )
 
 from .dummy import VLWholeSlideMicroscopyImage
@@ -248,12 +248,25 @@ def test_region_iterator(client):
         focal_plane_index=0,
     )
 
-    iterator = TotalPixelMatrixRegionIterator(
+    sampler = TotalPixelMatrixSampler(
         matrix=matrix,
-        padding=2,
-        region_dimensions=(6, 10)
+        region_dimensions=(6, 10),
+        padding=2
     )
-    for padded_region in iterator:
-        assert padded_region.shape == iterator.padded_region_shape
-        region = iterator.extract_region(padded_region)
-        assert region.shape == iterator.region_shape
+    assert len(sampler) == 15
+    for padded_region in sampler:
+        assert padded_region.shape == sampler.padded_region_shape
+        region = sampler.extract_region(padded_region)
+        assert region.shape == sampler.region_shape
+
+    sampler = TotalPixelMatrixSampler(
+        matrix=matrix,
+        region_dimensions=(6, 10),
+        bounding_box=((7, 7), (12, 12)),
+        padding=(2, 4)
+    )
+    assert len(sampler) == 6
+    for padded_region in sampler:
+        assert padded_region.shape == sampler.padded_region_shape
+        region = sampler.extract_region(padded_region)
+        assert region.shape == sampler.region_shape
