@@ -251,7 +251,7 @@ def test_region_iterator(client):
     sampler = TotalPixelMatrixSampler(
         matrix=matrix,
         region_dimensions=(6, 10),
-        padding=2
+        overlap=2
     )
     assert len(sampler) == 15
     for padded_region in sampler:
@@ -263,7 +263,7 @@ def test_region_iterator(client):
         matrix=matrix,
         region_dimensions=(6, 10),
         bounding_box=((7, 7), (12, 12)),
-        padding=(2, 4)
+        overlap=(2, 4)
     )
     assert len(sampler) == 6
     for padded_region in sampler:

@@ -795,7 +795,7 @@ class TotalPixelMatrixSampler:
         matrix: TotalPixelMatrix,
         region_dimensions: Tuple[int, int],
         bounding_box: Optional[Tuple[Tuple[int, int], Tuple[int, int]]] = None,
-        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]] = 0,
+        overlap: Union[int, Tuple[int, int], Tuple[int, int, int, int]] = 0,
     ):
         """
 
@@ -808,8 +808,8 @@ class TotalPixelMatrixSampler:
         bounding_box: Union[Tuple[Tuple[int, int], Tuple[int, int]], None], optional
             Bounding box of region of interest within total pixel matrix from
             which smaller regions should be sampled
-        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]], optional
-            Padding on each border of the sampled region using pixels from
+        overlap: Union[int, Tuple[int, int], Tuple[int, int, int, int]], optional
+            overlap on each border of the sampled region using pixels from
             neighboring regions. If a single integer is provided, the value
             is used to pad all four with the same number of pixels. If a
             sequence of length 2 is provided, the two values are used to pad
@@ -819,27 +819,27 @@ class TotalPixelMatrixSampler:
 
         """  # noqa: E501
         self._matrix = matrix
-        self._padding: Tuple[int, int, int, int]
-        if isinstance(padding, int):
-            self._padding = (padding, padding, padding, padding)
-        elif isinstance(padding, tuple):
-            if len(padding) == 2:
-                self._padding = (padding[0], padding[1], padding[0], padding[1])
-            elif len(padding) == 4:
-                self._padding = (
-                    padding[0],
-                    padding[1],
-                    padding[2],  # type: ignore
-                    padding[3],  # type: ignore
+        self._overlap: Tuple[int, int, int, int]
+        if isinstance(overlap, int):
+            self._overlap = (overlap, overlap, overlap, overlap)
+        elif isinstance(overlap, tuple):
+            if len(overlap) == 2:
+                self._overlap = (overlap[0], overlap[1], overlap[0], overlap[1])
+            elif len(overlap) == 4:
+                self._overlap = (
+                    overlap[0],
+                    overlap[1],
+                    overlap[2],  # type: ignore
+                    overlap[3],  # type: ignore
                 )
             else:
                 raise ValueError(
-                    'If argument "padding" is a tuple, its length must be '
+                    'If argument "overlap" is a tuple, its length must be '
                     'either 2 or 4.'
                 )
         else:
             raise TypeError(
-                'Argument "padding" must be either an integer or a tuple.'
+                'Argument "overlap" must be either an integer or a tuple.'
             )
         if bounding_box is not None:
             offset, size = bounding_box
@@ -915,12 +915,12 @@ class TotalPixelMatrixSampler:
         return self._matrix
 
     @property
-    def padding(self) -> Tuple[int, int, int, int]:
-        """Tuple[int, int, int, int]: Padding at the left, top, right, and
-        bottom of the region
+    def overlap(self) -> Tuple[int, int, int, int]:
+        """Tuple[int, int, int, int]: Overlap at the left, top, right, and
+        bottom of each sampled region
 
         """
-        return self._padding
+        return self._overlap
 
     @property
     def region_shape(self) -> Tuple[int, int, int]:
@@ -933,10 +933,11 @@ class TotalPixelMatrixSampler:
     @property
     def padded_region_shape(self) -> Tuple[int, int, int]:
         """Tuple[int, int, int]: Number of pixel rows, pixel columns, and
-        samples per pixel of a region
+        samples per pixel of sampled region with overlapping pixels from
+        neighboring regions
 
         """
-        left, top, right, bottom = self.padding
+        left, top, right, bottom = self.overlap
         return (
             self.region_shape[0] + top + bottom,
             self.region_shape[1] + left + right,
@@ -949,12 +950,14 @@ class TotalPixelMatrixSampler:
         Parameters
         ----------
         padded_region: numpy.ndarray
-            Image region containing the pixels of the tile of interest
+            Image region containing the pixels of a sampled region as well
+            as pixels from overlapping neighboring regions
 
         Returns
         -------
         numpy.ndarray
-            Pixels of region
+            Pixels of sampled region without pixels of overlapping neighboring
+            regions
 
         """
         if padded_region.shape != self.padded_region_shape:
@@ -962,7 +965,7 @@ class TotalPixelMatrixSampler:
                 f'Padded region has wrong shape: {padded_region.shape} '
                 f'instead of expected {self.padded_region_shape}.'
             )
-        left, top, right, bottom = self.padding
+        left, top, right, bottom = self.overlap
         return padded_region[top:-bottom, left:-right, :]
 
     def __getitem__(self, index: int) -> np.ndarray:
@@ -971,7 +974,7 @@ class TotalPixelMatrixSampler:
         The region includes the pixels of the tile and potentially parts of
         additional frames to the left, top, right, and bottom of the frame. How
         many pixels of neighboring tiles are included in the region depends on
-        the value of the `padding` attribute.
+        the value of the `overlap` attribute.
 
         Parameters
         ----------
@@ -993,7 +996,7 @@ class TotalPixelMatrixSampler:
         )
 
         r, c = self._selected_region_grid_coordinates[index, :]
-        left, top, right, bottom = self.padding
+        left, top, right, bottom = self.overlap
         total_row_start = r * region_rows
         total_col_start = c * region_cols
         total_rows, total_cols, _ = self.matrix.shape
