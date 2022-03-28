@@ -88,8 +88,8 @@ def test_color(client):
     array = matrix[:256, 256:512, 0]
     assert array.shape == (28, 0, 1)
 
-    assert matrix.get_tile_position(0) == (0, 0)
-    assert matrix.get_tile_position(1) == (0, 1)
+    assert matrix.get_tile_grid_position(0) == (0, 0)
+    assert matrix.get_tile_grid_position(1) == (0, 1)
     assert matrix.get_tile_index((0, 0)) == 0
     assert matrix.get_tile_index((0, 1)) == 1
 
@@ -251,22 +251,24 @@ def test_region_iterator(client):
     sampler = TotalPixelMatrixSampler(
         matrix=matrix,
         region_dimensions=(6, 10),
-        overlap=2
+        padding=2
     )
     assert len(sampler) == 15
+    left, top, right, bottom = sampler.padding
     for padded_region in sampler:
         assert padded_region.shape == sampler.padded_region_shape
-        region = sampler.extract_region(padded_region)
+        region = padded_region[top:-bottom, left:-right, :]
         assert region.shape == sampler.region_shape
 
     sampler = TotalPixelMatrixSampler(
         matrix=matrix,
         region_dimensions=(6, 10),
         bounding_box=((7, 7), (12, 12)),
-        overlap=(2, 4)
+        padding=(2, 4)
     )
     assert len(sampler) == 6
+    left, top, right, bottom = sampler.padding
     for padded_region in sampler:
         assert padded_region.shape == sampler.padded_region_shape
-        region = sampler.extract_region(padded_region)
+        region = padded_region[top:-bottom, left:-right, :]
         assert region.shape == sampler.region_shape

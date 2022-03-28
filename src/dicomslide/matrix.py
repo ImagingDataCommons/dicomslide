@@ -188,16 +188,16 @@ class TotalPixelMatrix:
             focal_plane_indices == focal_plane_index
         )
         self._tile_positions = matrix_positions[frame_selection_index, :]
-        self._tile_grid_indices = np.column_stack([
+        self._tile_grid_positions = np.column_stack([
             np.floor((self._tile_positions[:, 0]) / self._rows),
             np.floor((self._tile_positions[:, 1]) / self._cols),
         ]).astype(int)
         tile_sort_index = np.lexsort([
-            self._tile_grid_indices[:, 0],
-            self._tile_grid_indices[:, 1]
+            self._tile_grid_positions[:, 0],
+            self._tile_grid_positions[:, 1]
         ])
-        self._tile_grid_rows = int(np.max(self._tile_grid_indices[:, 0])) + 1
-        self._tile_grid_cols = int(np.max(self._tile_grid_indices[:, 1])) + 1
+        self._tile_grid_rows = int(np.max(self._tile_grid_positions[:, 0])) + 1
+        self._tile_grid_cols = int(np.max(self._tile_grid_positions[:, 1])) + 1
         self._num_frames = int(self._metadata.NumberOfFrames)
         frame_indices = np.arange(self._num_frames)
         self._frame_indices = frame_indices[frame_selection_index]
@@ -379,6 +379,58 @@ class TotalPixelMatrix:
             int(self._metadata.SamplesPerPixel)
         )
 
+    @property
+    def tile_grid_positions(self) -> np.ndarray:
+        """numpy.ndarray: Two-dimensional array of integer values representing
+        the grid positions of individual tiles in the tile grid
+
+        """
+        return self._tile_grid_positions
+
+    def get_tile_grid_position(self, index: int) -> Tuple[int, int]:
+        """Get position of a tile in the tile grid.
+
+        Parameters
+        ----------
+        index: int
+            Zero-based index of the tile in the flattened total pixel matrix
+
+        Returns
+        -------
+        Tuple[int, int]
+            Zero-based (row, column) index of a tile in the tile grid
+
+        """
+        position = self._tile_grid_positions[index, :]
+        return (int(position[0]), int(position[1]))
+
+    @property
+    def tile_positions(self) -> np.ndarray:
+        """numpy.ndarray: Two-dimensional array of integer values representing
+        the positions of individual tiles in the total pixel matrix, i.e., the
+        offsets from the ``(0, 0)`` origin of the total pixel matrix at the top
+        lefthand pixel
+
+        """
+        return self._tile_positions
+
+    def get_tile_position(self, index: int) -> Tuple[int, int]:
+        """Get position of a tile.
+
+        Parameters
+        ----------
+        index: int
+            Zero-based index of the tile in the flattened total pixel matrix
+
+        Returns
+        -------
+        Tuple[int, int]
+            Zero-based (row, column) offset of a tile in the total pixel matrix
+
+        """
+        r, c = self._tile_positions[index]
+        return (int(r), int(c))
+
     def get_tile_bounding_box(self, index: int) -> Tuple[
         Tuple[int, int], Tuple[int, int]
     ]:
@@ -453,23 +505,6 @@ class TotalPixelMatrix:
         self._current_index += 1
         return self[index]
 
-    def get_tile_position(self, index: int) -> Tuple[int, int]:
-        """Get position of a tile.
-
-        Parameters
-        ----------
-        index: int
-            Zero-based index of the tile in the flattened total pixel matrix
-
-        Returns
-        -------
-        Tuple[int, int]
-            Zero-based (row, column) index of a tile in the tile grid
-
-        """
-        position = self._tile_grid_indices[index, :]
-        return (int(position[0]), int(position[1]))
-
     def get_tile_index(self, position: Tuple[int, int]) -> int:
         """Get index of a tile.
 
@@ -485,8 +520,8 @@ class TotalPixelMatrix:
 
         """
         matches = np.logical_and(
-            self._tile_grid_indices[:, 0] == position[0],
-            self._tile_grid_indices[:, 1] == position[1]
+            self._tile_grid_positions[:, 0] == position[0],
+            self._tile_grid_positions[:, 1] == position[1]
         )
         if matches.shape[0] == 0:
             raise IndexError(f'Could not find a tile at position {position}.')
@@ -788,14 +823,21 @@ class TotalPixelMatrix:
 
 class TotalPixelMatrixSampler:
 
-    """Class for sampling regions of a total pixel matrix."""
+    """Class for sampling regions of a total pixel matrix.
+
+    Regions are sampled from a regular 2D Cartesian grid, where each region has
+    the same dimensions. Upon sampling, individual regions may optionally be
+    padded at one or more borders using pixels from adjacent regions.
+    Sampling can be constraint to a subset of the grid.
+
+    """
 
     def __init__(
         self,
         matrix: TotalPixelMatrix,
         region_dimensions: Tuple[int, int],
         bounding_box: Optional[Tuple[Tuple[int, int], Tuple[int, int]]] = None,
-        overlap: Union[int, Tuple[int, int], Tuple[int, int, int, int]] = 0,
+        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]] = 0,
     ):
         """
 
@@ -808,8 +850,8 @@ class TotalPixelMatrixSampler:
         bounding_box: Union[Tuple[Tuple[int, int], Tuple[int, int]], None], optional
             Bounding box of region of interest within total pixel matrix from
             which smaller regions should be sampled
-        overlap: Union[int, Tuple[int, int], Tuple[int, int, int, int]], optional
-            overlap on each border of the sampled region using pixels from
+        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]], optional
+            padding on each border of the sampled region using pixels from
             neighboring regions. If a single integer is provided, the value
             is used to pad all four with the same number of pixels. If a
             sequence of length 2 is provided, the two values are used to pad
@@ -819,27 +861,27 @@ class TotalPixelMatrixSampler:
 
         """  # noqa: E501
         self._matrix = matrix
-        self._overlap: Tuple[int, int, int, int]
-        if isinstance(overlap, int):
-            self._overlap = (overlap, overlap, overlap, overlap)
-        elif isinstance(overlap, tuple):
-            if len(overlap) == 2:
-                self._overlap = (overlap[0], overlap[1], overlap[0], overlap[1])
-            elif len(overlap) == 4:
-                self._overlap = (
-                    overlap[0],
-                    overlap[1],
-                    overlap[2],  # type: ignore
-                    overlap[3],  # type: ignore
+        self._padding: Tuple[int, int, int, int]
+        if isinstance(padding, int):
+            self._padding = (padding, padding, padding, padding)
+        elif isinstance(padding, tuple):
+            if len(padding) == 2:
+                self._padding = (padding[0], padding[1], padding[0], padding[1])
+            elif len(padding) == 4:
+                self._padding = (
+                    padding[0],
+                    padding[1],
+                    padding[2],  # type: ignore
+                    padding[3],  # type: ignore
                 )
             else:
                 raise ValueError(
-                    'If argument "overlap" is a tuple, its length must be '
+                    'If argument "padding" is a tuple, its length must be '
                     'either 2 or 4.'
                 )
         else:
             raise TypeError(
-                'Argument "overlap" must be either an integer or a tuple.'
+                'Argument "padding" must be either an integer or a tuple.'
             )
         if bounding_box is not None:
             offset, size = bounding_box
@@ -915,12 +957,12 @@ class TotalPixelMatrixSampler:
         return self._matrix
 
     @property
-    def overlap(self) -> Tuple[int, int, int, int]:
-        """Tuple[int, int, int, int]: Overlap at the left, top, right, and
+    def padding(self) -> Tuple[int, int, int, int]:
+        """Tuple[int, int, int, int]: Padding at the left, top, right, and
         bottom of each sampled region
 
         """
-        return self._overlap
+        return self._padding
 
     @property
     def region_shape(self) -> Tuple[int, int, int]:
@@ -937,49 +979,42 @@ class TotalPixelMatrixSampler:
         neighboring regions
 
         """
-        left, top, right, bottom = self.overlap
+        left, top, right, bottom = self.padding
         return (
             self.region_shape[0] + top + bottom,
             self.region_shape[1] + left + right,
             self.matrix.tile_shape[2]
         )
 
-    def extract_region(self, padded_region: np.ndarray) -> np.ndarray:
-        """Extract pixels of region from a padded region.
-
-        Parameters
-        ----------
-        padded_region: numpy.ndarray
-            Image region containing the pixels of a sampled region as well
-            as pixels from overlapping neighboring regions
-
-        Returns
-        -------
-        numpy.ndarray
-            Pixels of sampled region without pixels of overlapping neighboring
-            regions
-
-        """
-        if padded_region.shape != self.padded_region_shape:
-            raise ValueError(
-                f'Padded region has wrong shape: {padded_region.shape} '
-                f'instead of expected {self.padded_region_shape}.'
-            )
-        left, top, right, bottom = self.overlap
-        return padded_region[top:-bottom, left:-right, :]
-
-    def __getitem__(self, index: int) -> np.ndarray:
-        """Get region for a tile.
-
-        The region includes the pixels of the tile and potentially parts of
-        additional frames to the left, top, right, and bottom of the frame. How
-        many pixels of neighboring tiles are included in the region depends on
-        the value of the `overlap` attribute.
+    def get_region_grid_position(self, index: int) -> Tuple[int, int]:
+        """Get position of sampled region in the grid.
 
         Parameters
         ----------
         index: int
-            Zero-based index of the tile
+            Zero-based index of the sampled region
+
+        Returns
+        -------
+        Tuple[int, int]
+            Zero-based (row, column) grid position
+
+        """
+        r, c = self._selected_region_grid_coordinates[index, :]
+        return (int(r), int(c))
+
+    def __getitem__(self, index: int) -> np.ndarray:
+        """Get region.
+
+        The region includes the pixels of the tile and potentially parts of
+        additional frames to the left, top, right, and bottom of the frame. How
+        many pixels of neighboring tiles are included in the region depends on
+        the value of the `padding` attribute.
+
+        Parameters
+        ----------
+        index: int
+            Zero-based index of the sampled region
 
         Returns
         -------
@@ -995,8 +1030,8 @@ class TotalPixelMatrixSampler:
             dtype=self.matrix.dtype
         )
 
-        r, c = self._selected_region_grid_coordinates[index, :]
-        left, top, right, bottom = self.overlap
+        r, c = self.get_region_grid_position(index)
+        left, top, right, bottom = self.padding
         total_row_start = r * region_rows
         total_col_start = c * region_cols
         total_rows, total_cols, _ = self.matrix.shape
