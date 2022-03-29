@@ -694,6 +694,47 @@ class TotalPixelMatrix:
                     np.max(tile_positions[:, 0]) + self._rows
                 )
             )
+
+            # Sometimes, the stop index is off by one due to a rounding error.
+            # If that's the case, let's adjust the (negative) stop index to
+            # ensure that the resulting region is of the expected shape.
+            if region_row_stop is not None:
+                region_row_stop -= (
+                    (
+                        extended_region.shape[0] -
+                        region_row_start + region_row_stop
+                    ) -
+                    (row_stop - row_start)
+                )
+            else:
+                region_row_stop = -(
+                    (
+                        extended_region.shape[0] -
+                        region_row_start
+                    ) -
+                    (row_stop - row_start)
+                )
+                if region_row_stop == 0:
+                    region_row_stop = None
+            if region_col_stop is not None:
+                region_col_stop -= (
+                    (
+                        extended_region.shape[1] -
+                        region_col_start + region_col_stop
+                    ) -
+                    (col_stop - col_start)
+                )
+            else:
+                region_col_stop = -(
+                    (
+                        extended_region.shape[1] -
+                        region_col_start
+                    ) -
+                    (col_stop - col_start)
+                )
+                if region_col_stop == 0:
+                    region_col_stop = None
+
             region = extended_region[
                 region_row_start:region_row_stop,
                 region_col_start:region_col_stop,
@@ -702,6 +743,7 @@ class TotalPixelMatrix:
             # Return a copy rather than a view to provide a continous block of
             # memory without the extra bytes that are no longer needed.
             return region.copy()
+
         else:
             shape = []
             if len(row_tile_range) == 0:
