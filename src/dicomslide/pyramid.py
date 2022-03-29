@@ -226,8 +226,11 @@ def select_image_at_pixel_spacing(
     ])
     distances = np.abs(
         np.mean(
-            all_pixel_spacings[:, 0] - pixel_spacing[0],
-            all_pixel_spacings[:, 1] - pixel_spacing[1],
+            [
+                all_pixel_spacings[:, 0] - pixel_spacing[0],
+                all_pixel_spacings[:, 1] - pixel_spacing[1],
+            ],
+            axis=0
         )
     )
     index_nearest = int(np.argmin(distances))
