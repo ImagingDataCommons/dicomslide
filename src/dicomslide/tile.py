@@ -122,7 +122,7 @@ def assemble_total_pixel_matrix(
             row_start:row_stop,
             col_start:col_stop,
             ...,
-        ] = tile[:frame_row_stop, :frame_col_stop, :]
+        ] = tile[:frame_row_stop, :frame_col_stop, ...]
 
     return total_pixel_matrix
 
