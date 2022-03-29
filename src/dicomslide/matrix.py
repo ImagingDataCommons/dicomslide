@@ -2,6 +2,7 @@ import itertools
 import logging
 from collections import OrderedDict
 from typing import (
+    Callable,
     Dict,
     Optional,
     Sequence,
@@ -211,6 +212,7 @@ class TotalPixelMatrix:
             )
         self._max_frame_cache_size = int(max_frame_cache_size)
 
+        self._transform_fn: Union[Callable[[np.ndarray], np.ndarray], None]
         if self._metadata.SamplesPerPixel == 3 and correct_color:
             if (
                 hasattr(self._metadata, 'OpticalPathSequence') and
@@ -225,9 +227,9 @@ class TotalPixelMatrix:
                     'contain an ICC profile - '
                     'pixel values will not be color corrected'
                 )
-                self._transform_fn = lambda x: x
+                self._transform_fn = None
         else:
-            self._transform_fn = lambda x: x
+            self._transform_fn = None
 
     def _decode_frame(
         self,
@@ -324,7 +326,8 @@ class TotalPixelMatrix:
                     frame=frame_item,
                     transfer_syntax_uid=transfer_syntax_uid
                 )
-                array = self._transform_fn(array)
+                if self._transform_fn is not None:
+                    array = self._transform_fn(array)
                 if self._metadata.SamplesPerPixel == 1 and array.ndim == 2:
                     array = array[..., np.newaxis]
                 index = number - 1
