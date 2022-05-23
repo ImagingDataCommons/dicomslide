@@ -251,10 +251,10 @@ class Slide:
         ref_images = self._volume_images[(0, 0)]
         metadata = ref_images[0].metadata
         return ''.join([
-            f'=== Slide ({self._quickhash}) ==='
+            f'=== Slide ({self._quickhash}) ===\n'
             f'Study Instance UID: {metadata.StudyInstanceUID}\n'
             f'Container Identifier: {metadata.ContainerIdentifier}\n'
-            f'Frame of Reference UDI: {metadata.FrameOfReferenceUID}'
+            f'Frame of Reference UID: {metadata.FrameOfReferenceUID}'
         ])
 
     def __hash__(self) -> int:
@@ -966,6 +966,7 @@ def find_slides(
 
     """  # noqa: E501
     # Find VL Whole Slide Microscopy Image instances
+    logger.debug('search for slide microscopy image instances')
     search_filters: Dict[str, str] = {'Modality': 'SM'}
     if study_instance_uid is not None:
         search_filters['StudyInstanceUID'] = study_instance_uid
@@ -977,6 +978,10 @@ def find_slides(
         Dataset.from_json(ds)
         for ds in client.search_for_instances(search_filters=search_filters)
     ]
+    logger.debug(
+        f'found n={len(instance_search_results)} '
+        'slide microscopy image instances'
+    )
 
     def bulk_data_uri_handler(
         tag: str,
@@ -993,6 +998,7 @@ def find_slides(
         return bulkdata
 
     # Retrieve metadata of each VL Whole Slide Microscopy Image instance
+    logger.debug('retrieve metadata for found slide microscopy image instances')
     instance_metadata = [
         Dataset.from_json(
             client.retrieve_instance_metadata(
@@ -1006,10 +1012,15 @@ def find_slides(
     ]
 
     # Group images by Container Identifier and Frame of Reference UID
+    logger.debug(
+        'filter slide microscopy image instances '
+        'using retrieve metadata'
+    )
     lut = defaultdict(list)
     for metadata in instance_metadata:
         if metadata.SOPClassUID != VLWholeSlideMicroscopyImageStorage:
             continue
+
         if study_instance_uid is not None:
             if metadata.StudyInstanceUID != study_instance_uid:
                 logger.debug(
@@ -1017,6 +1028,7 @@ def find_slides(
                     f'not match the Study Instance UID "{study_instance_uid}"'
                 )
                 continue
+
         if patient_id is not None:
             if metadata.PatientID != patient_id:
                 logger.debug(
@@ -1024,6 +1036,7 @@ def find_slides(
                     f'not match the Patient ID "{patient_id}"'
                 )
                 continue
+
         if study_id is not None:
             if metadata.StudyID != study_id:
                 logger.debug(
@@ -1031,6 +1044,7 @@ def find_slides(
                     f'not match the Study ID "{study_id}"'
                 )
                 continue
+
         if container_id is not None:
             if metadata.ContainerIdentifier != container_id:
                 logger.debug(
@@ -1047,9 +1061,12 @@ def find_slides(
                 'metadata elements'
             )
             continue
+
         key = (current_container_id, current_frame_of_reference_uid)
         lut[key].append(metadata)
+    logger.debug(f'retained n={len(lut)} slide microscopy image instances')
 
+    logger.debug('create slide objects for slide microscpy image instances')
     found_slides = []
     for key, image_metadata in lut.items():
         ref_image = image_metadata[0]
