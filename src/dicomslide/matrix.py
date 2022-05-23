@@ -24,13 +24,18 @@ from dicomslide.tile import (
 logger = logging.getLogger(__name__)
 
 
-def _determine_transfer_syntax(frame: bytes) -> UID:
+def _determine_transfer_syntax(
+    frame: bytes,
+    metadata: Dataset
+) -> UID:
     """Determine the transfer syntax of a frame.
 
     Parameters
     ----------
     frame: bytes
         Frame item of the Pixel Data element of an image
+    metadata: pydicom.Dataset
+        Image metadata
 
     Returns
     -------
@@ -45,39 +50,60 @@ def _determine_transfer_syntax(frame: bytes) -> UID:
     fail to detec the correct transfer syntax.
 
     """
+    def is_lossy_compressed(metadata: Dataset) -> bool:
+        lossy_image_compression = metadata.get('LossyImageCompression', '00')
+        return lossy_image_compression == '01'
 
-    def is_jpeg(frame):
-        start_marker = b"\xFF\xD8"
-        end_markers = (b"\xFF\xD9", b"\xFF\xD9\x00")  # may be zero padded
-        if frame.startswith(start_marker):
-            if any([frame.endswith(marker) for marker in end_markers]):
-                return True
-        return False
-
-    def is_jpeg2000(frame):
-        start_marker = b"\x00\x00\x00\x0C\x6A\x50\x20\x20\x0D\x0A\x87\x0A"
-        end_markers = (b"\xFF\xD9", b"\xFF\xD9\x00")  # may be zero padded
-        if frame.startswith(start_marker):
-            if any([frame.endswith(marker) for marker in end_markers]):
-                return True
-        return False
-
-    def is_jpegls(frame):
-        start_markers = (b"\xFF\xD8\xFF\xF7", b"\xFF\xD8\xFF\xE8")
-        end_markers = (b"\xFF\xD9", b"\xFF\xD9\x00")  # may be zero padded
+    def do_markers_match(
+        frame: bytes,
+        start_markers: Tuple[bytes, ...],
+        end_markers: Tuple[bytes, ...]
+    ) -> bool:
         if any([frame.startswith(marker) for marker in start_markers]):
             if any([frame.endswith(marker) for marker in end_markers]):
                 return True
         return False
 
+    def is_jpeg(frame: bytes) -> bool:
+        start_markers = (b"\xFF\xD8", )
+        end_markers = (b"\xFF\xD9", b"\xFF\xD9\x00")  # may be zero padded
+        return do_markers_match(frame, start_markers, end_markers)
+
+    def is_jpeg2000(frame: bytes) -> bool:
+        start_markers = (
+            b"\x00\x00\x00\x0C\x6A\x50\x20\x20\x0D\x0A\x87\x0A",  # jp2 (boxed)
+            b"\xff\x4f\xff\x51",  # j2k
+        )
+        end_markers = (b"\xFF\xD9", b"\xFF\xD9\x00")  # may be zero padded
+        return do_markers_match(frame, start_markers, end_markers)
+
+    def is_jpegls(frame: bytes) -> bool:
+        start_markers = (b"\xFF\xD8\xFF\xF7", b"\xFF\xD8\xFF\xE8")
+        end_markers = (b"\xFF\xD9", b"\xFF\xD9\x00")  # may be zero padded
+        return do_markers_match(frame, start_markers, end_markers)
+
     if is_jpegls(frame):
         # Needs to be checked before JPEG because they share SOI and EOI marker
+        if is_lossy_compressed(metadata):
+            return UID("1.2.840.10008.1.2.4.81")
         return UID("1.2.840.10008.1.2.4.80")
     elif is_jpeg(frame):
+        if not is_lossy_compressed(metadata):
+            raise ValueError(
+                "Transfer syntax determined from value of frame item and "
+                "image metadata do not match."
+            )
         return UID("1.2.840.10008.1.2.4.50")
     elif is_jpeg2000(frame):
+        if is_lossy_compressed(metadata):
+            return UID("1.2.840.10008.1.2.4.91")
         return UID("1.2.840.10008.1.2.4.90")
     else:
+        if is_lossy_compressed(metadata):
+            raise ValueError(
+                "Transfer syntax determined from value of frame item and "
+                "image metadata do not match."
+            )
         return UID("1.2.840.10008.1.2.1")
 
 
@@ -317,7 +343,10 @@ class TotalPixelMatrix:
             # Decode and cache retrieved frames
             for i, number in enumerate(selected_frame_numbers):
                 frame_item = frames[i]
-                transfer_syntax_uid = _determine_transfer_syntax(frame_item)
+                transfer_syntax_uid = _determine_transfer_syntax(
+                    frame_item,
+                    metadata=self._metadata
+                )
                 logger.debug(
                     f'decode frame {number} with transfer syntax '
                     f'"{transfer_syntax_uid}"'
@@ -881,7 +910,12 @@ class TotalPixelMatrixSampler:
         self,
         matrix: TotalPixelMatrix,
         region_dimensions: Tuple[int, int],
-        bounding_box: Optional[Tuple[Tuple[int, int], Tuple[int, int]]] = None,
+        bounding_box: Optional[
+            Tuple[Tuple[int, int], Tuple[int, int]]
+        ] = None,
+        tile_grid_positions: Optional[
+            Union[Sequence[Tuple[int, int]], np.ndarray]
+        ] = None,
         padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]] = 0,
     ):
         """
@@ -894,7 +928,12 @@ class TotalPixelMatrixSampler:
             Height (rows) and width (columns) of sampled regions
         bounding_box: Union[Tuple[Tuple[int, int], Tuple[int, int]], None], optional
             Bounding box of region of interest within total pixel matrix from
-            which smaller regions should be sampled
+            which regions should be sampled
+        tile_grid_positions: Union[Sequence[Tuple[int, int]], numpy.ndarray, None], optional
+            Grid position of tiles that intersect with the region of interest
+            within the total pixel matrix from which regions should be sampled.
+            Each grid position is a zero-based (row, column) index into the
+            tile grid of the total pixel matrix.
         padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]], optional
             padding on each border of the sampled region using pixels from
             neighboring regions. If a single integer is provided, the value
@@ -903,6 +942,11 @@ class TotalPixelMatrixSampler:
             the left/right and top/bottom border, respectively. If a sequence
             of length 4 is provided, the four values are used to pad the left,
             top, right, and bottom borders respectively.
+
+        Note
+        ----
+        If `bounding_box` and `tile_grid_positions` are provided,
+        `tile_grid_positions` are ignored.
 
         """  # noqa: E501
         self._matrix = matrix
@@ -928,19 +972,6 @@ class TotalPixelMatrixSampler:
             raise TypeError(
                 'Argument "padding" must be either an integer or a tuple.'
             )
-        if bounding_box is not None:
-            offset, size = bounding_box
-            if (
-                (offset[0] + size[0]) > matrix.shape[0] or
-                (offset[1] + size[1]) > matrix.shape[1]
-            ):
-                raise ValueError(
-                    'Bounding box must not extend beyond total pixel matrix.'
-                )
-        else:
-            offset = (0, 0)
-            size = (matrix.shape[0], matrix.shape[0])
-        self._bounding_box = (offset, size)
         self._region_shape = (
             region_dimensions[0],
             region_dimensions[1],
@@ -958,27 +989,93 @@ class TotalPixelMatrixSampler:
             )
         ])
 
-        box_start_grid_coordinates = (
-            int(np.floor(offset[0] / self._region_shape[0])),
-            int(np.floor(offset[1] / self._region_shape[1])),
-        )
-        box_end_grid_coordinates = (
-            int(np.ceil((offset[0] + size[0]) / self._region_shape[0])),
-            int(np.ceil((offset[1] + size[1]) / self._region_shape[1])),
-        )
-        self._selected_region_grid_coordinates = np.array([
-            (r, c)
-            for r, c in itertools.product(
-                range(
-                    box_start_grid_coordinates[0],
-                    box_end_grid_coordinates[0],
-                ),
-                range(
-                    box_start_grid_coordinates[1],
-                    box_end_grid_coordinates[1],
+        if bounding_box is not None:
+            if not isinstance(bounding_box, Sequence):
+                raise TypeError('Argument "bounding_box" must be a sequence.')
+            if len(bounding_box) != 2:
+                raise ValueError(
+                    'Argument "bounding_box" must be a sequence of length 2.'
                 )
+            if tile_grid_positions is not None:
+                logger.warning(
+                    'arguments "bounding_box" and "tile_grid_positions" were '
+                    'both provided and "tile_positions" will be ignored'
+                )
+            offset, size = bounding_box
+            if not isinstance(offset, Sequence):
+                raise TypeError(
+                    'First item of argument "bounding_box" must be a sequence.'
+                )
+            if len(offset) != 2:
+                raise ValueError(
+                    'First item of argument "bounding_box" must be a sequence '
+                    'of length 2.'
+                )
+            if not isinstance(size, Sequence):
+                raise TypeError(
+                    'Second item of argument "bounding_box" must be a sequence.'
+                )
+            if len(size) != 2:
+                raise ValueError(
+                    'Second item of argument "bounding_box" must be a sequence '
+                    'of length 2.'
+                )
+
+            if (
+                (offset[0] + size[0]) > matrix.shape[0] or
+                (offset[1] + size[1]) > matrix.shape[1]
+            ):
+                raise ValueError(
+                    'Bounding box must not extend beyond total pixel matrix.'
+                )
+            box_start_grid_coordinates = (
+                int(np.floor(offset[0] / self._region_shape[0])),
+                int(np.floor(offset[1] / self._region_shape[1])),
             )
-        ])
+            box_end_grid_coordinates = (
+                int(np.ceil((offset[0] + size[0]) / self._region_shape[0])),
+                int(np.ceil((offset[1] + size[1]) / self._region_shape[1])),
+            )
+            self._selected_region_grid_coordinates = np.array([
+                (r, c)
+                for r, c in itertools.product(
+                    range(
+                        box_start_grid_coordinates[0],
+                        box_end_grid_coordinates[0],
+                    ),
+                    range(
+                        box_start_grid_coordinates[1],
+                        box_end_grid_coordinates[1],
+                    )
+                )
+            ])
+
+        elif tile_grid_positions is not None:
+            grid_coordinates = []
+            for r, c in tile_grid_positions:
+                tile_index = matrix.get_tile_index((r, c))
+                offset = matrix.get_tile_position(tile_index)
+                size = matrix.tile_shape[:2]
+                start_grid_coordinates = (
+                    int(np.floor(offset[0] / self._region_shape[0])),
+                    int(np.floor(offset[1] / self._region_shape[1])),
+                )
+                grid_coordinates.append(start_grid_coordinates)
+                stop_grid_coordinates = (
+                    int(np.ceil((offset[0] + size[0]) / self._region_shape[0])),
+                    int(np.ceil((offset[1] + size[1]) / self._region_shape[1])),
+                )
+                grid_coordinates.append(stop_grid_coordinates)
+            grid_coordinates = np.array(grid_coordinates)
+            self._selected_region_grid_coordinates = np.unique(
+                grid_coordinates,
+                axis=0
+            )
+
+        else:
+            self._selected_region_grid_coordinates = np.array(
+                self._region_grid_coordinates
+            )
 
         self._current_index = 0
 
