@@ -84,9 +84,9 @@ def _determine_transfer_syntax(
 
     if is_jpegls(frame):
         # Needs to be checked before JPEG because they share SOI and EOI marker
-        if is_lossy_compressed(metadata):
-            return UID("1.2.840.10008.1.2.4.81")
-        return UID("1.2.840.10008.1.2.4.80")
+        if not is_lossy_compressed(metadata):
+            return UID("1.2.840.10008.1.2.4.80")
+        return UID("1.2.840.10008.1.2.4.81")
     elif is_jpeg(frame):
         if not is_lossy_compressed(metadata):
             raise ValueError(
@@ -95,15 +95,10 @@ def _determine_transfer_syntax(
             )
         return UID("1.2.840.10008.1.2.4.50")
     elif is_jpeg2000(frame):
-        if is_lossy_compressed(metadata):
-            return UID("1.2.840.10008.1.2.4.91")
-        return UID("1.2.840.10008.1.2.4.90")
+        if not is_lossy_compressed(metadata):
+            return UID("1.2.840.10008.1.2.4.90")
+        return UID("1.2.840.10008.1.2.4.91")
     else:
-        if is_lossy_compressed(metadata):
-            raise ValueError(
-                "Transfer syntax determined from value of frame item and "
-                "image metadata do not match."
-            )
         return UID("1.2.840.10008.1.2.1")
 
 
@@ -936,8 +931,8 @@ class TotalPixelMatrixSampler:
             tile grid of the total pixel matrix.
         padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]], optional
             Padding on each border of the sampled region using pixels from
-            neighboring regions. If a single integer is provided, the value
-            is used to pad all four with the same number of pixels. If a
+            neighboring regions. If a single integer is provided, the value is
+            used to pad all four borders with the same number of pixels. If a
             sequence of length 2 is provided, the two values are used to pad
             the left/right and top/bottom border, respectively. If a sequence
             of length 4 is provided, the four values are used to pad the left,
