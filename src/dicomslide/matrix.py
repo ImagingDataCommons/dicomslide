@@ -935,7 +935,7 @@ class TotalPixelMatrixSampler:
             Each grid position is a zero-based (row, column) index into the
             tile grid of the total pixel matrix.
         padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]], optional
-            padding on each border of the sampled region using pixels from
+            Padding on each border of the sampled region using pixels from
             neighboring regions. If a single integer is provided, the value
             is used to pad all four with the same number of pixels. If a
             sequence of length 2 is provided, the two values are used to pad

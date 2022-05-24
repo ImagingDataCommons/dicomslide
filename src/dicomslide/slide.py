@@ -251,7 +251,7 @@ class Slide:
         ref_images = self._volume_images[(0, 0)]
         metadata = ref_images[0].metadata
         return ''.join([
-            f'=== Slide ({self._quickhash}) ===\n'
+            f'=== Slide {self._quickhash} ===\n'
             f'Study Instance UID: {metadata.StudyInstanceUID}\n'
             f'Container Identifier: {metadata.ContainerIdentifier}\n'
             f'Frame of Reference UID: {metadata.FrameOfReferenceUID}'
@@ -827,7 +827,12 @@ class Slide:
         self,
         annotation: hd.sr.Scoord3DContentItem,
         level: int,
-        optical_path_index: int = 0
+        optical_path_index: int = 0,
+        padding: Union[
+            float,
+            Tuple[float, float],
+            Tuple[float, float, float, float]
+        ] = 0.0
     ) -> np.ndarray:
         """Get slide region defined by a graphic annotation.
 
@@ -841,6 +846,15 @@ class Slide:
         optical_path_index: int, optional
             Zero-based index into optical paths along the direction defined by
             Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+        padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]], optional
+            Padding on each border of the region defined by `annotation`.  If a
+            single integer is provided, the value is used to pad all four
+            borders with the same number of pixels. If a sequence of length 2
+            is provided, the two values are used to pad the left/right (along
+            the X axis) and top/bottom (along the Y axis) border, respectively.
+            If a sequence of length 4 is provided, the four values are used to
+            pad the left (- X axis), top (+ Y axis), right (+ X axis), and
+            bottom (- Y axis) borders respectively.
 
         Returns
         -------
@@ -848,13 +862,55 @@ class Slide:
             Three-dimensional pixel array of shape
             (Rows, Columns, Samples per Pixel) for the requested slide region
 
-        """
+        Note
+        ----
+        The slide coordinate system is defined for the upright standing slide
+        such that the X axis corresponds to the short side of the slide and the
+        Y axis corresponds to the long side of the slide.
+        The rows of the returned pixel array are thus parallel to the X axis of
+        the slide coordinate system and the columns parallel to the Y axis of
+        the slide coordinate system.
+
+        """  # noqa: E501
+        full_padding: Tuple[float, float, float, float]
+        if isinstance(padding, (int, float)):
+            full_padding = (
+                float(padding),
+                float(padding),
+                float(padding),
+                float(padding),
+            )
+        elif isinstance(padding, tuple):
+            if len(padding) == 2:
+                full_padding = (
+                    float(padding[0]),
+                    float(padding[1]),
+                    float(padding[0]),
+                    float(padding[1]),
+                )
+            elif len(padding) == 4:
+                full_padding = (
+                    float(padding[0]),
+                    float(padding[1]),
+                    float(padding[2]),  # type: ignore
+                    float(padding[3]),  # type: ignore
+                )
+            else:
+                raise ValueError(
+                    'If argument "padding" is a tuple, its length must be '
+                    'either 2 or 4.'
+                )
+        else:
+            raise TypeError(
+                'Argument "padding" must be either an integer or a tuple.'
+            )
+
         slide_coordinates: Tuple[float, float]
         size: Tuple[float, float]
         focal_plane_offset: float
         graphic_data = annotation.value
         if annotation.graphic_type == hd.sr.GraphicTypeValues3D.POINT:
-            slide_coordinates = (graphic_data[0, 0], graphic_data[0, 1])
+            offset = (graphic_data[0, 0], graphic_data[0, 1])
             focal_plane_offset = graphic_data[0, 2]
             size = (0.0, 0.0)
         elif annotation.graphic_type in (
@@ -864,7 +920,7 @@ class Slide:
         ):
             min_point = np.min(graphic_data, axis=0)
             max_point = np.max(graphic_data, axis=0)
-            slide_coordinates = (min_point[0], min_point[1])
+            offset = (min_point[0], min_point[1])
             focal_plane_offset = min_point[2]
             size = (max_point[0] - min_point[0], max_point[1] - min_point[1])
         elif annotation.graphic_type == hd.sr.GraphicTypeValues3D.ELLIPSE:
@@ -876,7 +932,7 @@ class Slide:
                 np.max([graphic_data[:, 0]]),
                 np.max([graphic_data[:, 1]]),
             ]
-            slide_coordinates = (min_point[0], min_point[1])
+            offset = (min_point[0], min_point[1])
             # Points are co-planar per definition
             focal_plane_offset = graphic_data[0, 2]
             size = (max_point[0] - min_point[0], max_point[1] - min_point[1])
@@ -912,11 +968,20 @@ class Slide:
         if ref_frame_of_reference_uid != frame_of_reference_uid:
             raise ValueError(
                 'Annotation must be defined in same frame of reference as the '
-                'source images: "{frame_of_reference_uid}".'
+                f'source images: "{frame_of_reference_uid}".'
             )
 
+        offset = (
+            offset[0] - full_padding[0],
+            offset[1] + full_padding[1],  # offset increases along Y axis!
+        )
+        size = (
+            size[0] + full_padding[0] + full_padding[2],
+            size[1] + full_padding[1] + full_padding[3],
+        )
+
         return self.get_slide_region(
-            offset=slide_coordinates,
+            offset=offset,
             level=level,
             size=size,
             optical_path_index=optical_path_index,
