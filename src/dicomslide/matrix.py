@@ -985,7 +985,7 @@ class TotalPixelMatrixSampler:
         ])
 
         if bounding_box is not None:
-            if not isinstance(bounding_box, Sequence):
+            if not isinstance(bounding_box, tuple):
                 raise TypeError('Argument "bounding_box" must be a sequence.')
             if len(bounding_box) != 2:
                 raise ValueError(
@@ -996,25 +996,35 @@ class TotalPixelMatrixSampler:
                     'arguments "bounding_box" and "tile_grid_positions" were '
                     'both provided and "tile_positions" will be ignored'
                 )
-            offset, size = bounding_box
-            if not isinstance(offset, Sequence):
+
+            if not isinstance(bounding_box[0], Sequence):
                 raise TypeError(
                     'First item of argument "bounding_box" must be a sequence.'
                 )
-            if len(offset) != 2:
+            if len(bounding_box[0]) != 2:
                 raise ValueError(
                     'First item of argument "bounding_box" must be a sequence '
                     'of length 2.'
                 )
-            if not isinstance(size, Sequence):
+            if not isinstance(bounding_box[1], Sequence):
                 raise TypeError(
                     'Second item of argument "bounding_box" must be a sequence.'
                 )
-            if len(size) != 2:
+            if len(bounding_box[1]) != 2:
                 raise ValueError(
                     'Second item of argument "bounding_box" must be a sequence '
                     'of length 2.'
                 )
+
+            # We need to jump through a few hoops here to make mypy happy.
+            offset: Tuple[int, int] = (
+                int(bounding_box[0][0]),  # type: ignore
+                int(bounding_box[0][1]),  # type: ignore
+            )
+            size: Tuple[int, int] = (
+                int(bounding_box[1][0]),  # type: ignore
+                int(bounding_box[1][1]),  # type: ignore
+            )
 
             if (
                 (offset[0] + size[0]) > matrix.shape[0] or
@@ -1061,9 +1071,8 @@ class TotalPixelMatrixSampler:
                     int(np.ceil((offset[1] + size[1]) / self._region_shape[1])),
                 )
                 grid_coordinates.append(stop_grid_coordinates)
-            grid_coordinates = np.array(grid_coordinates)
             self._selected_region_grid_coordinates = np.unique(
-                grid_coordinates,
+                np.array(grid_coordinates),
                 axis=0
             )
 
