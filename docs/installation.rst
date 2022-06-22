@@ -1,0 +1,31 @@
+.. _installation-guide:
+
+Installation guide
+==================
+
+.. _requirements:
+
+Requirements
+------------
+
+* `Python <https://www.python.org/>`_ (version 3.6 or higher)
+* Python package manager `pip <https://pip.pypa.io/en/stable/>`_
+
+.. _installation:
+
+Installation
+------------
+
+Pre-build package available at PyPi:
+
+.. code-block:: none
+
+    pip install dicomslide
+
+Source code available at Github:
+
+.. code-block:: none
+
+    git clone https://github.com/herrmannlab/highdicom ~/highdicom
+    pip install ~/highdicom
+
