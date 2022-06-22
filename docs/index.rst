@@ -12,6 +12,7 @@ Welcome to dicomslide's documentation!
 
    introduction
    installation
+   usage
    development
    license
    package

@@ -62,7 +62,7 @@ Reading images using dicomslide API
 Reading images using openslide API
 ----------------------------------
 
-The library also exposes an `OpenSlide <https://openslide.org/api/python/>`_ interface (:class:``dicomslide.OpenSlide``), which is intended as an API wrapper around an :class:`dicomslide.Slide` instance to be used as a drop-in replacement for an `openslide.OpenSlide <https://openslide.org/api/python/#openslide.OpenSlide>`_ instance:
+The library also exposes an `OpenSlide <https://openslide.org/api/python/>`_ interface (:class:`dicomslide.OpenSlide`), which is intended as an API wrapper around a :class:`dicomslide.Slide` instance and to be used as a drop-in replacement for an `openslide.OpenSlide <https://openslide.org/api/python/#openslide.OpenSlide>`_ instance:
 
 .. code-block:: python
 
