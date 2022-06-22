@@ -1,3 +1,5 @@
+[![Build Status](https://github.com/herrmannlab/dicomslide/actions/workflows/run_unit_tests.yml/badge.svg)](https://github.com/herrmannlab/dicomslide/actions)
+
 # dicomslide
 
 A Python library for reading whole slide images in DICOM format from local files or over network via a unified application programming interface.
