@@ -2,7 +2,7 @@
 
 # dicomslide
 
-A Python library for reading whole slide images in DICOM format from local files or over network via a unified application programming interface.
+A Python library for reading whole slide images and derived information in DICOM format from local files or over network via a unified application programming interface.
 
 ## Documentation
 

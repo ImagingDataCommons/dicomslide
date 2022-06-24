@@ -2,17 +2,27 @@
 # -*- coding: utf-8 -*-
 import io
 import re
+from pathlib import Path
 
 import setuptools
 
-with io.open('src/dicomslide/version.py', 'rt', encoding='utf8') as f:
+root_directory = Path(__file__).parent
+readme_filepath = root_directory.joinpath('README.md')
+long_description = readme_filepath.read_text()
+
+version_filepath = root_directory.joinpath('src/dicomslide/version.py')
+with io.open(version_filepath, 'rt', encoding='utf8') as f:
     version = re.search(r'__version__ = \'(.*?)\'', f.read()).group(1)
 
 
 setuptools.setup(
     name='dicomslide',
     version=version,
-    description='Library for reading whole slide images in DICOM format.',
+    description=(
+        'Library for reading whole slide images and derived information '
+        'in DICOM format.'
+    ),
+    long_description=long_description,
     author='Markus D. Herrmann',
     maintainer='Markus D. Herrmann',
     url='https://github.com/herrmannlab/dicomslide',
