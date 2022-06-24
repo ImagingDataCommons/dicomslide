@@ -160,8 +160,8 @@ class Slide:
 
         self._number_of_channels = len(unique_channel_identifiers)
         self._channel_identifier_lut: Mapping[int, str] = OrderedDict()
-        self._channel_type_lut: Mapping[int, str] = OrderedDict()
-        self._channel_index_lut: Mapping[(ChannelTypes, str), int] = {}
+        self._channel_type_lut: Mapping[int, ChannelTypes] = OrderedDict()
+        self._channel_index_lut: Mapping[Tuple[ChannelTypes, str], int] = {}
         for i, (channel_type, channel_id) in enumerate(
             sorted(list(unique_channel_identifiers))
         ):
@@ -487,8 +487,8 @@ class Slide:
         """int: Number of channels"""
         return self._number_of_channels
 
-    def get_channel_type(self, channel_index: int) -> str:
-        """Get identifier of a channel.
+    def get_channel_type(self, channel_index: int) -> ChannelTypes:
+        """Get type of a channel.
 
         Parameters
         ----------
@@ -572,6 +572,7 @@ class Slide:
             When no channel is found for `channel_identifier` and `channel_type`
 
         """
+        channel_type = ChannelTypes(channel_type)
         try:
             return self._channel_index_lut[(channel_type, channel_identifier)]
         except IndexError:
