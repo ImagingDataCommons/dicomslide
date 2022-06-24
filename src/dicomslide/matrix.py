@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 def _determine_transfer_syntax(
-    frame: bytes,
+    frame_value: bytes,
+    frame_number: int,
     metadata: Dataset
 ) -> UID:
     """Determine the transfer syntax of a frame.
@@ -55,51 +56,54 @@ def _determine_transfer_syntax(
         return lossy_image_compression == '01'
 
     def do_markers_match(
-        frame: bytes,
+        value: bytes,
         start_markers: Tuple[bytes, ...],
         end_markers: Tuple[bytes, ...]
     ) -> bool:
-        if any([frame.startswith(marker) for marker in start_markers]):
-            if any([frame.endswith(marker) for marker in end_markers]):
+        if any([value.startswith(marker) for marker in start_markers]):
+            if any([value.endswith(marker) for marker in end_markers]):
                 return True
         return False
 
-    def is_jpeg(frame: bytes) -> bool:
-        start_markers = (b"\xFF\xD8", )
-        end_markers = (b"\xFF\xD9", b"\xFF\xD9\x00")  # may be zero padded
-        return do_markers_match(frame, start_markers, end_markers)
+    def is_jpeg(value: bytes) -> bool:
+        start_markers = (b'\xFF\xD8', )
+        end_markers = (b'\xFF\xD9', b'\xFF\xD9\x00')  # may be zero padded
+        return do_markers_match(value, start_markers, end_markers)
 
-    def is_jpeg2000(frame: bytes) -> bool:
+    def is_jpeg2000(value: bytes) -> bool:
         start_markers = (
-            b"\x00\x00\x00\x0C\x6A\x50\x20\x20\x0D\x0A\x87\x0A",  # jp2 (boxed)
-            b"\xff\x4f\xff\x51",  # j2k
+            b'\x00\x00\x00\x0C\x6A\x50\x20\x20\x0D\x0A\x87\x0A',  # jp2 (boxed)
+            b'\xff\x4f\xff\x51',  # j2k
         )
-        end_markers = (b"\xFF\xD9", b"\xFF\xD9\x00")  # may be zero padded
-        return do_markers_match(frame, start_markers, end_markers)
+        end_markers = (b'\xFF\xD9', b'\xFF\xD9\x00')  # may be zero padded
+        return do_markers_match(value, start_markers, end_markers)
 
-    def is_jpegls(frame: bytes) -> bool:
-        start_markers = (b"\xFF\xD8\xFF\xF7", b"\xFF\xD8\xFF\xE8")
-        end_markers = (b"\xFF\xD9", b"\xFF\xD9\x00")  # may be zero padded
-        return do_markers_match(frame, start_markers, end_markers)
+    def is_jpegls(value: bytes) -> bool:
+        start_markers = (b'\xFF\xD8\xFF\xF7', b'\xFF\xD8\xFF\xE8')
+        end_markers = (b'\xFF\xD9', b'\xFF\xD9\x00')  # may be zero padded
+        return do_markers_match(value, start_markers, end_markers)
 
-    if is_jpegls(frame):
+    if is_jpegls(frame_value):
         # Needs to be checked before JPEG because they share SOI and EOI marker
         if not is_lossy_compressed(metadata):
-            return UID("1.2.840.10008.1.2.4.80")
-        return UID("1.2.840.10008.1.2.4.81")
-    elif is_jpeg(frame):
+            return UID('1.2.840.10008.1.2.4.80')
+        return UID('1.2.840.10008.1.2.4.81')
+    elif is_jpeg(frame_value):
         if not is_lossy_compressed(metadata):
-            raise ValueError(
-                "Transfer syntax determined from value of frame item and "
-                "image metadata do not match."
+            logger.warning(
+                'transfer syntax may not have been correctly determined for '
+                f'frame #{frame_number} of '
+                f'image instance {metadata.SOPInstanceUID} - '
+                'the frame item value indicates that the pixel data has been '
+                'lossy compressed but the image metadata states otherwise'
             )
-        return UID("1.2.840.10008.1.2.4.50")
-    elif is_jpeg2000(frame):
+        return UID('1.2.840.10008.1.2.4.50')
+    elif is_jpeg2000(frame_value):
         if not is_lossy_compressed(metadata):
-            return UID("1.2.840.10008.1.2.4.90")
-        return UID("1.2.840.10008.1.2.4.91")
+            return UID('1.2.840.10008.1.2.4.90')
+        return UID('1.2.840.10008.1.2.4.91')
     else:
-        return UID("1.2.840.10008.1.2.1")
+        return UID('1.2.840.10008.1.2.1')
 
 
 class TotalPixelMatrix:
@@ -340,6 +344,7 @@ class TotalPixelMatrix:
                 frame_item = frames[i]
                 transfer_syntax_uid = _determine_transfer_syntax(
                     frame_item,
+                    frame_number=number,
                     metadata=self._metadata
                 )
                 logger.debug(
