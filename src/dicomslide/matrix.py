@@ -182,7 +182,7 @@ class TotalPixelMatrix:
         if not is_tiled_image(image_metadata):
             raise ValueError('Image is not tiled.')
 
-        self._n = int(image_metadata.NumberOfFrames)
+        self._n = int(getattr(image_metadata, 'NumberOfFrames', '1'))
         self._rows = int(image_metadata.Rows)
         self._cols = int(image_metadata.Columns)
         (
@@ -220,7 +220,7 @@ class TotalPixelMatrix:
         ])
         self._tile_grid_rows = int(np.max(self._tile_grid_positions[:, 0])) + 1
         self._tile_grid_cols = int(np.max(self._tile_grid_positions[:, 1])) + 1
-        self._num_frames = int(self._metadata.NumberOfFrames)
+        self._num_frames = int(getattr(self._metadata, 'NumberOfFrames', '1'))
         frame_indices = np.arange(self._num_frames)
         self._frame_indices = frame_indices[frame_selection_index]
         self._sorted_frame_indices = self._frame_indices[tile_sort_index]
@@ -325,7 +325,6 @@ class TotalPixelMatrix:
                 sop_instance_uid=self._metadata.SOPInstanceUID,
                 frame_numbers=selected_frame_numbers,
                 media_types=(
-                    ("application/octet-stream", "*"),
                     ("image/jpeg", "1.2.840.10008.1.2.4.50"),
                     ("image/jls", "1.2.840.10008.1.2.4.80"),
                     ("image/jls", "1.2.840.10008.1.2.4.81"),
@@ -333,6 +332,7 @@ class TotalPixelMatrix:
                     ("image/jp2", "1.2.840.10008.1.2.4.91"),
                     ("image/jpx", "1.2.840.10008.1.2.4.92"),
                     ("image/jpx", "1.2.840.10008.1.2.4.93"),
+                    ("application/octet-stream", "*"),
                 )
             )
             # Decode and cache retrieved frames

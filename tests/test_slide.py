@@ -196,7 +196,7 @@ def test_color_images(client, dimension_organization_type):
 
     for slide in found_slides:
         assert isinstance(slide, Slide)
-        assert slide.num_optical_paths == expected_num_optical_paths
+        assert slide.num_channels == expected_num_optical_paths
         assert slide.num_focal_planes == expected_num_focal_planes
         assert slide.num_levels == expected_num_levels
         assert slide.downsampling_factors == expected_downsampling_factors
@@ -229,7 +229,7 @@ def test_color_images(client, dimension_organization_type):
                 offset=(0, 0),
                 level=0,
                 size=(52, 100),
-                optical_path_index=0,
+                channel_index=0,
                 focal_plane_index=0
             ),
             np.ones((52, 100, expected_samples_per_pixel), dtype=np.uint8) * 255
@@ -239,7 +239,7 @@ def test_color_images(client, dimension_organization_type):
                 offset=(5, 10),
                 level=2,
                 size=(28, 37),
-                optical_path_index=0,
+                channel_index=0,
                 focal_plane_index=0
             ),
             np.ones((28, 37, expected_samples_per_pixel), dtype=np.uint8) * 255
@@ -250,7 +250,7 @@ def test_color_images(client, dimension_organization_type):
                 offset=(0.0, 0.0),
                 level=3,
                 size=(0.5, 0.25),
-                optical_path_index=0,
+                channel_index=0,
                 focal_plane_index=0
             ),
             np.ones((63, 32, expected_samples_per_pixel), dtype=np.uint8) * 255
@@ -260,7 +260,7 @@ def test_color_images(client, dimension_organization_type):
                 offset=(10.0, 20.0),
                 level=2,
                 size=(0.05, 0.03),
-                optical_path_index=0,
+                channel_index=0,
                 focal_plane_index=0
             ),
             np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
@@ -285,7 +285,7 @@ def test_color_images(client, dimension_organization_type):
                     )
                 ),
                 level=2,
-                optical_path_index=0
+                channel_index=0
             ),
             np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
@@ -308,7 +308,7 @@ def test_color_images(client, dimension_organization_type):
                     )
                 ),
                 level=2,
-                optical_path_index=0,
+                channel_index=0,
                 padding=(0.05, 0.01)
             ),
             np.ones((38, 13, expected_samples_per_pixel), dtype=np.uint8) * 255
@@ -331,7 +331,7 @@ def test_color_images(client, dimension_organization_type):
                     )
                 ),
                 level=3,
-                optical_path_index=0
+                channel_index=0
             ),
             np.ones((7, 4, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
@@ -350,7 +350,7 @@ def test_color_images(client, dimension_organization_type):
                     frame_of_reference_uid='1.2.3.4'
                 ),
                 level=2,
-                optical_path_index=0
+                channel_index=0
             )
 
         openslide = OpenSlide(slide)
@@ -434,16 +434,16 @@ def test_grayscale_images(client):
 
     for slide in found_slides:
         assert isinstance(slide, Slide)
-        assert slide.num_optical_paths == expected_num_optical_paths
+        assert slide.num_channels == expected_num_optical_paths
         assert slide.num_focal_planes == expected_num_focal_planes
         assert slide.num_levels == expected_num_levels
         assert slide.downsampling_factors == expected_downsampling_factors
         assert len(slide.find_optical_paths(identifier='1')) == 1
 
-        for optical_path_index in range(expected_num_optical_paths):
+        for channel_index in range(expected_num_optical_paths):
             for focal_plane_index in range(expected_num_focal_planes):
                 volume_images = slide.get_volume_images(
-                    optical_path_index=optical_path_index,
+                    channel_index=channel_index,
                     focal_plane_index=focal_plane_index
                 )
                 assert len(volume_images) == expected_num_levels
@@ -469,7 +469,7 @@ def test_grayscale_images(client):
                         offset=(0, 0),
                         level=0,
                         size=(52, 100),
-                        optical_path_index=optical_path_index,
+                        channel_index=channel_index,
                         focal_plane_index=focal_plane_index
                     ),
                     np.zeros(
@@ -482,7 +482,7 @@ def test_grayscale_images(client):
                         offset=(5, 10),
                         level=2,
                         size=(28, 37),
-                        optical_path_index=optical_path_index,
+                        channel_index=channel_index,
                         focal_plane_index=focal_plane_index
                     ),
                     np.zeros(
@@ -496,7 +496,7 @@ def test_grayscale_images(client):
                         offset=(0.0, 0.0),
                         level=3,
                         size=(0.5, 0.25),
-                        optical_path_index=0,
+                        channel_index=0,
                         focal_plane_index=0
                     ),
                     np.zeros(
@@ -509,7 +509,7 @@ def test_grayscale_images(client):
                         offset=(10.0, 20.0),
                         level=2,
                         size=(0.05, 0.03),
-                        optical_path_index=0,
+                        channel_index=0,
                         focal_plane_index=1
                     ),
                     np.zeros(

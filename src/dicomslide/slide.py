@@ -18,9 +18,10 @@ import numpy as np
 from dicomweb_client import DICOMClient
 from pydicom import Dataset
 from pydicom.sr.coding import Code
-from pydicom._storage_sopclass_uids import VLWholeSlideMicroscopyImageStorage
+from pydicom.uid import VLWholeSlideMicroscopyImageStorage
 from scipy.ndimage import rotate
 
+from dicomslide.enum import ChannelTypes
 from dicomslide.image import TiledImage
 from dicomslide.pyramid import get_image_size, Pyramid
 from dicomslide.utils import (
@@ -37,29 +38,24 @@ class Slide:
 
     """A digital slide.
 
-    A collection of DICOM VL Whole Slide Microscopy Image instances that share
-    the same Frame of Reference UID and Container Identifier, i.e., that have
-    been acquired as part of one image acquisition for the same physical glass
-    slide (container) and can be visualized and analyzed in the same frame of
-    reference (coordinate system).
+    A collection of DICOM image instances that share the same Frame of
+    Reference UID and Container Identifier, i.e., that have been acquired as
+    part of one image acquisition for the same physical glass slide (container)
+    and can be visualized and analyzed in the same frame of reference
+    (coordinate system).
 
     A slide consists of one or more image pyramids - one for each unique pair
-    of optical path and focal plane. The total pixel matrices of the different
+    of channel and focal plane. The total pixel matrices of the different
     pyramid levels are stored in separate DICOM image instances. Individual
-    optical paths or focal planes may be each stored in separate DICOM image
+    channels or focal planes may be each stored in separate DICOM image
     instances or combined in a single DICOM image instance per pyramid level.
     Pyramids are expected to have the same number of levels and the same
-    downsampling factors across optical paths and focal planes and the total
-    pixel matrices at each level are expected to have the same dimensions
-    (i.e., the same number of total pixel matrix columns and rows). However,
-    the tiling of the total pixel matrices (i.e., the number of tile columns
-    and rows) may differ across pyramid levels as well as across optical paths
-    and focal planes at the same pyramid level.
-
-    A slide may further be associated with additional DICOM Segmentation,
-    Parametric Map, Comprehensive 3D SR, or other types of instances that were
-    derived from the DICOM VL Whole Slide Microscopy Image instances belonging
-    to the slide.
+    downsampling factors across channels and focal planes and the total pixel
+    matrices at each level are expected to have the same dimensions (i.e., the
+    same number of total pixel matrix columns and rows). However, the tiling of
+    the total pixel matrices (i.e., the number of tile columns and rows) may
+    differ across pyramid levels as well as across channels and focal planes at
+    the same pyramid level.
 
     """
 
@@ -77,8 +73,7 @@ class Slide:
         client: dicomweb_client.api.DICOMClient
             DICOMweb client
         image_metadata: Sequence[pydicom.Dataset]
-            Metadata of DICOM VL Whole Slide Microscopy Image instances that
-            belong to the slide
+            Metadata of images that belong to the slide
         max_frame_cache_size: int, optional
             Maximum number of frames that should be cached per image instance
             to avoid repeated retrieval requests
@@ -99,11 +94,6 @@ class Slide:
                     f'Item #{i} of argument "image_metadata" must have type '
                     'pydicom.Dataset.'
                 )
-            if metadata.SOPClassUID != VLWholeSlideMicroscopyImageStorage:
-                raise ValueError(
-                    f'Item #{i} of argument "image_metadata" must be a DICOM '
-                    'VL Whole Slide Microscpy Image instance.'
-                )
             if metadata.FrameOfReferenceUID != ref_image.FrameOfReferenceUID:
                 raise ValueError(
                     'All items of argument "image_metadata" must be DICOM '
@@ -118,7 +108,7 @@ class Slide:
                 )
 
         volume_images_lut: Dict[
-            Tuple[str, float], List[TiledImage]
+            Tuple[ChannelTypes, str, float], List[TiledImage]
         ] = defaultdict(list)
         label_images = []
         overview_images = []
@@ -133,15 +123,17 @@ class Slide:
                     range(image.num_channels),
                     range(image.num_focal_planes),
                 )
-                for optical_path_index, focal_plane_index in iterator:
-                    optical_path_identifier = image.get_channel_identifier(
-                        optical_path_index
+                for channel_index, focal_plane_index in iterator:
+                    channel_type = image.channel_type
+                    channel_identifier = image.get_channel_identifier(
+                        channel_index
                     )
                     focal_plane_offset = image.get_focal_plane_offset(
                         focal_plane_index
                     )
-                    key: Tuple[str, float] = (
-                        optical_path_identifier,
+                    key: Tuple[ChannelTypes, str, float] = (
+                        channel_type,
+                        channel_identifier,
                         focal_plane_offset,
                     )
                     volume_images_lut[key].append(image)
@@ -158,46 +150,49 @@ class Slide:
         self._overview_images = tuple(overview_images)
         self._volume_images: Dict[Tuple[int, int], Tuple[TiledImage, ...]] = {}
 
-        unique_optical_path_identifiers = set()
+        unique_channel_identifiers = set()
         unique_focal_plane_offsets = set()
-        for optical_path_id, focal_plane_offset in volume_images_lut.keys():
-            unique_optical_path_identifiers.add(optical_path_id)
+        for key in volume_images_lut.keys():
+            channel_type, channel_id, focal_plane_offset = key
+            unique_channel_identifiers.add((channel_type, channel_id))
             unique_focal_plane_offsets.add(focal_plane_offset)
 
-        self._number_of_optical_paths = len(unique_optical_path_identifiers)
+        self._number_of_channels = len(unique_channel_identifiers)
+        self._channel_identifier_lut: Mapping[int, str] = OrderedDict()
+        self._channel_type_lut: Mapping[int, str] = OrderedDict()
+        self._channel_index_lut: Mapping[(ChannelTypes, str), int] = {}
+        for i, (channel_type, channel_id) in enumerate(
+            sorted(list(unique_channel_identifiers))
+        ):
+            self._channel_identifier_lut[i] = channel_id
+            self._channel_type_lut[i] = channel_type
+            self._channel_index_lut[(channel_type, channel_id)] = i
+
         self._number_of_focal_planes = len(unique_focal_plane_offsets)
-        self._optical_path_identifier_lut: Mapping[int, str] = OrderedDict({
-            i: optical_path_id
-            for i, optical_path_id in enumerate(unique_optical_path_identifiers)
-        })
-        self._optical_path_index_lut: Mapping[str, int] = OrderedDict({
-            optical_path_id: i
-            for i, optical_path_id in enumerate(unique_optical_path_identifiers)
-        })
-        self._focal_plane_offset_lut: Mapping[int, float] = OrderedDict({
-            i: focal_plane_offset
-            for i, focal_plane_offset in enumerate(unique_focal_plane_offsets)
-        })
-        self._focal_plane_index_lut: Mapping[float, int] = OrderedDict({
-            focal_plane_offset: i
-            for i, focal_plane_offset in enumerate(unique_focal_plane_offsets)
-        })
+        self._focal_plane_offset_lut: Mapping[int, float] = OrderedDict()
+        self._focal_plane_index_lut: Mapping[float, int] = {}
+        for i, focal_plane_offset in enumerate(
+            sorted(list(unique_focal_plane_offsets))
+        ):
+            self._focal_plane_offset_lut[i] = focal_plane_offset
+            self._focal_plane_index_lut[focal_plane_offset] = i
+
         encoded_image_metadata = []
-        for optical_path_index in self._optical_path_identifier_lut.keys():
-            optical_path_id = self._optical_path_identifier_lut[
-                optical_path_index
-            ]
+        for channel_index in self._channel_identifier_lut.keys():
+            channel_id = self._channel_identifier_lut[channel_index]
             for focal_plane_index in self._focal_plane_offset_lut.keys():
                 focal_plane_offset = self._focal_plane_offset_lut[
                     focal_plane_index
                 ]
                 volume_images: List[TiledImage] = sorted(
-                    volume_images_lut[(optical_path_id, focal_plane_offset)],
+                    volume_images_lut[
+                        (channel_type, channel_id, focal_plane_offset)
+                    ],
                     key=lambda image: get_image_size(image.metadata),
                     reverse=True
                 )
                 volume_image_key: Tuple[int, int] = (
-                    optical_path_index,
+                    channel_index,
                     focal_plane_index,
                 )
                 self._volume_images[volume_image_key] = tuple(volume_images)
@@ -212,32 +207,29 @@ class Slide:
 
         pyramids: Dict[Tuple[int, int], Pyramid] = {}
         for (
-            optical_path_index,
+            channel_index,
             focal_plane_index,
         ), image_collection in self._volume_images.items():
             try:
-                pyramids[(optical_path_index, focal_plane_index)] = Pyramid(
-                    metadata=[
-                        image.metadata
-                        for image in image_collection
-                    ],
+                pyramids[(channel_index, focal_plane_index)] = Pyramid(
+                    metadata=[image.metadata for image in image_collection],
                     tolerance=pyramid_tolerance
                 )
             except ValueError as error:
                 raise ValueError(
-                    'VOLUME and THUMBNAIL images for optical path '
-                    f'{optical_path_index} and focal plane {focal_plane_index} '
-                    f'do not represent a valid image pyramid: {error}'
+                    f'VOLUME and THUMBNAIL images for channel {channel_index} '
+                    f'and focal plane {focal_plane_index} do not represent '
+                    f'a valid image pyramid: {error}'
                 )
 
-        # For now, pyramids must be identical across optical paths and focal
-        # planes. This requirement could potentially be relaxed in the future.
+        # For now, pyramids must be identical across channels and focal planes.
+        # This requirement could potentially be relaxed in the future.
         ref_pyramid = pyramids[(0, 0)]
         for pyramid in pyramids.values():
             if pyramid != ref_pyramid:
                 raise ValueError(
-                    'Pyramids for different optical paths and focal planes '
-                    'must have the same structure: the same number of levels '
+                    'Pyramids for different channels and focal planes must '
+                    'have the same structure, i.e., the same number of levels '
                     'as well as the same dimensions and downsampling factors '
                     'per level.'
                 )
@@ -250,12 +242,7 @@ class Slide:
     def __repr__(self) -> str:
         ref_images = self._volume_images[(0, 0)]
         metadata = ref_images[0].metadata
-        return ''.join([
-            f'=== Slide {self._quickhash} ===\n'
-            f'Study Instance UID: {metadata.StudyInstanceUID}\n'
-            f'Container Identifier: {metadata.ContainerIdentifier}\n'
-            f'Frame of Reference UID: {metadata.FrameOfReferenceUID}'
-        ])
+        return f'<Slide {metadata.ContainerIdentifier} {self._quickhash}>'
 
     def __hash__(self) -> int:
         return hash(self._quickhash)
@@ -283,8 +270,9 @@ class Slide:
         Returns
         -------
         Tuple[int, ...]
-            Zero-based index into optical paths along the direction defined by
-            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
 
         """
         def does_optical_path_match(
@@ -332,22 +320,21 @@ class Slide:
             return any(matches)
 
         matching_optical_path_indices = set()
-        for key, images in self._volume_images.items():
-            optical_path_index = key[0]
-            optical_path_identifier = self.get_optical_path_identifier(
-                optical_path_index
-            )
-            if identifier is not None:
-                if optical_path_identifier == identifier:
-                    return (optical_path_index, )
-
+        for (channel_index, _), images in self._volume_images.items():
             ref_image = images[0]
-            image_optical_path_index = ref_image.get_channel_index(
-                optical_path_identifier
-            )
-            optical_path_item = ref_image.metadata.OpticalPathSequence[
-                image_optical_path_index
+            if ref_image.channel_type != ChannelTypes.OPTICAL_PATH:
+                continue
+            channel_identifier = self.get_channel_identifier(channel_index)
+            if identifier is not None:
+                if channel_identifier == identifier:
+                    return (channel_index, )
+
+            matching_optical_path_items = [
+                item
+                for item in ref_image.metadata.OpticalPathSequence
+                if item.OpticalPathIdentifier == channel_identifier
             ]
+            optical_path_item = matching_optical_path_items[0]
             specimen_description_item = (
                 ref_image
                 .metadata
@@ -365,22 +352,23 @@ class Slide:
                     specimen_stain
                 )
             ]):
-                matching_optical_path_indices.add(optical_path_index)
+                matching_optical_path_indices.add(channel_index)
 
         return tuple(matching_optical_path_indices)
 
     def get_volume_images(
         self,
-        optical_path_index: int = 0,
+        channel_index: int = 0,
         focal_plane_index: int = 0
     ) -> Tuple[TiledImage, ...]:
-        """Get VOLUME or THUMBNAIL images for an optical path and focal plane.
+        """Get VOLUME or THUMBNAIL images for an channel and focal plane.
 
         Parameters
         ----------
-        optical_path_index: int, optional
-            Zero-based index into optical paths along the direction defined by
-            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
         focal_plane_index: int, optional
             Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
@@ -393,12 +381,12 @@ class Slide:
             Images sorted by size in descending order
 
         """
-        key = (optical_path_index, focal_plane_index)
+        key = (channel_index, focal_plane_index)
         try:
             return tuple(self._volume_images[key])
         except KeyError:
             raise IndexError(
-                f'No VOLUME images found for optical path {optical_path_index} '
+                f'No VOLUME images found for channel {channel_index} '
                 f'and focal plane {focal_plane_index}.'
             )
 
@@ -413,64 +401,101 @@ class Slide:
         return self._overview_images
 
     @property
-    def num_optical_paths(self) -> int:
-        """int: Number of optical paths"""
-        return self._number_of_optical_paths
+    def num_channels(self) -> int:
+        """int: Number of channels"""
+        return self._number_of_channels
 
-    def get_optical_path_identifier(self, optical_path_index: int) -> str:
-        """Get identifier of an optical path.
+    def get_channel_type(self, channel_index: int) -> str:
+        """Get identifier of a channel.
 
         Parameters
         ----------
-        optical_path_index: int
-            Zero-based index into optical paths along the direction defined by
-            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+        channel_index: int
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
+
+        Returns
+        -------
+        dicomslide.ChannelTypes
+            Channel type
+
+        Raises
+        ------
+        ValueError
+            When no channel is found for `channel_index`
+
+        """
+        try:
+            return self._channel_type_lut[channel_index]
+        except IndexError:
+            raise ValueError(
+                'No VOLUME or THUMNAIL image found for channel index '
+                f'{channel_index}.'
+            )
+
+    def get_channel_identifier(self, channel_index: int) -> str:
+        """Get identifier of a channel.
+
+        Parameters
+        ----------
+        channel_index: int
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
 
         Returns
         -------
         str
-            Optical path identifier
+            Channel identifier
 
         Raises
         ------
         ValueError
-            When no optical path is found for `optical_path_index`
+            When no channel is found for `channel_index`
 
         """
         try:
-            return self._optical_path_identifier_lut[optical_path_index]
+            return self._channel_identifier_lut[channel_index]
         except IndexError:
             raise ValueError(
-                'No VOLUME or THUMNAIL image found for optical path index '
-                f'{optical_path_index}.'
+                'No VOLUME or THUMNAIL image found for channel index '
+                f'{channel_index}.'
             )
 
-    def get_optical_path_index(self, optical_path_identifier: str) -> int:
-        """Get index of an optical path.
+    def get_channel_index(
+        self,
+        channel_identifier: str,
+        channel_type: Union[ChannelTypes, str]
+    ) -> int:
+        """Get index of a channel.
 
         Parameters
         ----------
-        optical_path_identifier: str
-            Optical path identifier
+        channel_identifier: str
+            Channel identifier
+        channel_type: Union[str, dicomslide.ChannelTypes]
+            Channel type
 
         Returns
         -------
         int
-            Zero-based index into optical paths along the direction defined by
-            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute, which is
+            dependend on the type of channel.
 
         Raises
         ------
         ValueError
-            When no optical path is found for `optical_path_identifier`
+            When no channel is found for `channel_identifier` and `channel_type`
 
         """
         try:
-            return self._optical_path_index_lut[optical_path_identifier]
+            return self._channel_index_lut[(channel_type, channel_identifier)]
         except IndexError:
             raise ValueError(
-                'No VOLUME or THUMNAIL image found for optical path identifier '
-                f'{optical_path_identifier}.'
+                'No VOLUME or THUMNAIL image found for channel identifier '
+                f'{channel_identifier} and type {channel_type.value}.'
             )
 
     @property
@@ -607,7 +632,7 @@ class Slide:
         offset: Tuple[int, int],
         level: int,
         size: Tuple[int, int],
-        optical_path_index: int = 0,
+        channel_index: int = 0,
         focal_plane_index: int = 0
     ) -> np.ndarray:
         """Get image region.
@@ -624,9 +649,10 @@ class Slide:
             Zero-based index into pyramid levels
         size: Tuple[int, int]
             Rows and columns of the requested image region
-        optical_path_index: int, optional
-            Zero-based index into optical paths along the direction defined by
-            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
         focal_plane_index: int, optional
             Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
@@ -642,11 +668,11 @@ class Slide:
         """
         logger.debug(
             f'get region of size {size} at offset {offset} '
-            f'at level {level} for optical path {optical_path_index} and '
+            f'at level {level} for channel {channel_index} and '
             f'focal plane {focal_plane_index}'
         )
         volume_images = self.get_volume_images(
-            optical_path_index=optical_path_index,
+            channel_index=channel_index,
             focal_plane_index=focal_plane_index
         )
         try:
@@ -654,7 +680,7 @@ class Slide:
         except IndexError:
             raise IndexError(f'Slide does not have level {level}.')
 
-        # Each image may have one or more optical paths or focal planes and the
+        # Each image may have one or more channels or focal planes and the
         # image-level indices differ from the slide-level indices.
         if image.num_channels == 1 and image.num_focal_planes == 1:
             matrix = image.get_total_pixel_matrix(
@@ -662,14 +688,15 @@ class Slide:
                 focal_plane_index=0
             )
         else:
-            image_optical_path_index = image.get_channel_index(
-                self.get_optical_path_identifier(optical_path_index)
+            image_channel_index = image.get_channel_index(
+                channel_identifier=self.get_channel_identifier(channel_index),
+                channel_type=self.get_channel_type(channel_index)
             )
             image_focal_plane_index = image.get_focal_plane_index(
                 self.get_focal_plane_offset(focal_plane_index)
             )
             matrix = image.get_total_pixel_matrix(
-                channel_index=image_optical_path_index,
+                channel_index=image_channel_index,
                 focal_plane_index=image_focal_plane_index
             )
 
@@ -682,7 +709,7 @@ class Slide:
         col_stop = col_start + cols
         logger.debug(
             f'get region [{row_start}:{row_stop}, {col_start}:{col_stop}, :] '
-            f'at level {level} for optical path {optical_path_index} and '
+            f'at level {level} for channel {channel_index} and '
             f'focal plane {focal_plane_index} '
         )
         return matrix[row_start:row_stop, col_start:col_stop, :]
@@ -692,7 +719,7 @@ class Slide:
         offset: Tuple[float, float],
         level: int,
         size: Tuple[float, float],
-        optical_path_index: int = 0,
+        channel_index: int = 0,
         focal_plane_index: int = 0
     ) -> np.ndarray:
         """Get slide region.
@@ -708,9 +735,10 @@ class Slide:
         size: Tuple[float, float]
             Width and height of the requested slide region in millimeter unit
             along the X and Y axis of the slide coordinate system, respectively.
-        optical_path_index: int, optional
-            Zero-based index into optical paths along the direction defined by
-            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
         focal_plane_index: int, optional
             Zero-based index into focal planes along depth direction from the
             glass slide towards the coverslip in the slide coordinate system
@@ -736,11 +764,11 @@ class Slide:
         logger.debug(
             f'get region on slide of size {size} [mm] at offset '
             f'{offset} [mm] at level {level} for image '
-            f'with optical path {optical_path_index} and focal plane '
+            f'with channel {channel_index} and focal plane '
             f'{focal_plane_index}.'
         )
         volume_images = self.get_volume_images(
-            optical_path_index=optical_path_index,
+            channel_index=channel_index,
             focal_plane_index=focal_plane_index
         )
         try:
@@ -768,7 +796,7 @@ class Slide:
         region_rows = int(np.ceil(size[1] / pixel_spacing[1]))
         region_cols = int(np.ceil(size[0] / pixel_spacing[0]))
 
-        # Each image may have one or more optical paths or focal planes and the
+        # Each image may have one or more channels or focal planes and the
         # image-level indices differ from the slide-level indices.
         if image.num_channels == 1 and image.num_focal_planes == 1:
             matrix = image.get_total_pixel_matrix(
@@ -777,14 +805,15 @@ class Slide:
             )
         else:
             focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
-            image_optical_path_index = image.get_channel_index(
-                self.get_optical_path_identifier(optical_path_index)
+            image_channel_index = image.get_channel_index(
+                channel_identifier=self.get_channel_identifier(channel_index),
+                channel_type=self.get_channel_type(channel_index)
             )
             image_focal_plane_index = image.get_focal_plane_index(
                 focal_plane_offset
             )
             matrix = image.get_total_pixel_matrix(
-                channel_index=image_optical_path_index,
+                channel_index=image_channel_index,
                 focal_plane_index=image_focal_plane_index
             )
 
@@ -827,7 +856,7 @@ class Slide:
         self,
         annotation: hd.sr.Scoord3DContentItem,
         level: int,
-        optical_path_index: int = 0,
+        channel_index: int = 0,
         padding: Union[
             float,
             Tuple[float, float],
@@ -843,9 +872,10 @@ class Slide:
             slide coordinate system
         level: int
             Zero-based index into pyramid levels
-        optical_path_index: int, optional
-            Zero-based index into optical paths along the direction defined by
-            Optical Path Identifier attribute of VOLUME or THUMBNAIL images.
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
         padding: Union[int, Tuple[int, int], Tuple[int, int, int, int]], optional
             Padding on each border of the region defined by `annotation`.  If a
             single integer is provided, the value is used to pad all four
@@ -956,7 +986,7 @@ class Slide:
         focal_plane_index = self.get_focal_plane_index(focal_plane_offset)
 
         volume_images = self.get_volume_images(
-            optical_path_index=optical_path_index,
+            channel_index=channel_index,
             focal_plane_index=focal_plane_index
         )
         try:
@@ -984,7 +1014,7 @@ class Slide:
             offset=offset,
             level=level,
             size=size,
-            optical_path_index=optical_path_index,
+            channel_index=channel_index,
             focal_plane_index=focal_plane_index
         )
 
@@ -1048,6 +1078,8 @@ def find_slides(
         'slide microscopy image instances'
     )
 
+    # TODO: search for derived Segmentation or Parametric Map images
+
     def bulk_data_uri_handler(
         tag: str,
         vr: str,
@@ -1055,12 +1087,7 @@ def find_slides(
     ) -> Union[bytes, None]:
         if tag != '00282000':
             return None
-        uri = uri.replace(
-            'http://arc:8080/dcm4chee-arc/aets/DCM4CHEE/rs',
-            'http://localhost:8008/dicomweb'
-        )
-        bulkdata = client.retrieve_bulkdata(uri)[0]
-        return bulkdata
+        return client.retrieve_bulkdata(uri)[0]
 
     # Retrieve metadata of each VL Whole Slide Microscopy Image instance
     logger.debug('retrieve metadata for found slide microscopy image instances')
@@ -1077,15 +1104,9 @@ def find_slides(
     ]
 
     # Group images by Container Identifier and Frame of Reference UID
-    logger.debug(
-        'filter slide microscopy image instances '
-        'using retrieve metadata'
-    )
+    logger.debug('filter image instances using retrieve metadata')
     lut = defaultdict(list)
     for metadata in instance_metadata:
-        if metadata.SOPClassUID != VLWholeSlideMicroscopyImageStorage:
-            continue
-
         if study_instance_uid is not None:
             if metadata.StudyInstanceUID != study_instance_uid:
                 logger.debug(
@@ -1129,9 +1150,9 @@ def find_slides(
 
         key = (current_container_id, current_frame_of_reference_uid)
         lut[key].append(metadata)
-    logger.debug(f'retained n={len(lut)} slide microscopy image instances')
+    logger.debug(f'retained n={len(lut)} image instances')
 
-    logger.debug('create slide objects for slide microscpy image instances')
+    logger.debug('create slide objects for image instances')
     found_slides = []
     for key, image_metadata in lut.items():
         ref_image = image_metadata[0]
@@ -1147,6 +1168,7 @@ def find_slides(
                 max_frame_cache_size=max_frame_cache_size,
                 pyramid_tolerance=pyramid_tolerance
             )
+            found_slides.append(slide)
         except Exception as error:
             if fail_on_error:
                 raise
@@ -1159,7 +1181,5 @@ def find_slides(
                     f'"{ref_image.FrameOfReferenceUID}" due to the following '
                     f'error: {error}'
                 )
-                continue
-        found_slides.append(slide)
 
     return found_slides

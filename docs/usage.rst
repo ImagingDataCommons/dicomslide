@@ -39,19 +39,19 @@ Reading images using dicomslide API
     assert len(found_slides) == 1
     slide = found_slides[0]
 
-    print(slide.num_optical_paths)
+    print(slide.num_channels)
     print(slide.num_focal_planes)
     print(slide.num_levels)
     print(slide.total_pixel_matrix_dimensions)
     print(slide.downsampling_factors)
     print(slide.label_images)
-    print(slide.get_volume_images(optical_path_index=0, focal_plane_index=0))
+    print(slide.get_volume_images(channel_index=0, focal_plane_index=0))
 
     region: np.ndarray = slide.get_image_region(
         pixel_indices=(0, 0),
         level=-1,
         size=(512, 512),
-        optical_path_index=0,
+        channel_index=0,
         focal_plane_index=0
     )
     plt.imshow(region)

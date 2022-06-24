@@ -7,8 +7,14 @@ import highdicom as hd
 import numpy as np
 from dicomweb_client import DICOMClient
 from pydicom.dataset import Dataset
+from pydicom.uid import (
+    ParametricMapStorage,
+    SegmentationStorage,
+    VLWholeSlideMicroscopyImageStorage,
+)
 
 from dicomslide._channel import _get_channel_info
+from dicomslide.enum import ChannelTypes
 from dicomslide.matrix import TotalPixelMatrix
 from dicomslide.tile import compute_frame_positions
 from dicomslide.utils import _encode_dataset
@@ -272,8 +278,26 @@ class TiledImage:
             )
         return index
 
+    @property
+    def channel_type(self) -> ChannelTypes:
+        """dicomslide.ChannelTypes: type of channels"""
+        sop_class_uid = self._metadata.SOPClassUID
+        sop_instance_uid = self._metadata.SOPInstanceUID
+        lut = {
+            VLWholeSlideMicroscopyImageStorage: ChannelTypes.OPTICAL_PATH,
+            SegmentationStorage: ChannelTypes.SEGMENT,
+            ParametricMapStorage: ChannelTypes.PARAMETER,
+        }
+        try:
+            return lut[sop_class_uid]
+        except IndexError:
+            raise ValueError(
+                'Could not determine channel type for '
+                f'image "{sop_instance_uid}" of SOP Class "{sop_class_uid}".'
+            )
+
     def get_channel_identifier(self, channel_index: int) -> str:
-        """Get identifier of an optical path.
+        """Get identifier of a channel.
 
         Parameters
         ----------
@@ -284,12 +308,12 @@ class TiledImage:
         Returns
         -------
         str
-            Optical path identifier
+            Channel identifier
 
         Raises
         ------
         ValueError
-            When no optical path is found for `channel_index`
+            When no channel is found for `channel_index`
 
         """
         try:

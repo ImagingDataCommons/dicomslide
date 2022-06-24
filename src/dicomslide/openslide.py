@@ -181,7 +181,7 @@ class OpenSlide:
             offset=(location[1], location[0]),
             level=level,
             size=(size[1], size[0]),
-            optical_path_index=0,
+            channel_index=0,
             focal_plane_index=0
         )
         return self._convert_to_pil_image(pixel_array)

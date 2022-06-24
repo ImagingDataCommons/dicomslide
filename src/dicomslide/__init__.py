@@ -1,6 +1,4 @@
-__version__ = '0.1.0'
-
-from dicomslide.enum import ImageFlavors
+from dicomslide.enum import ChannelTypes, ImageFlavors
 from dicomslide.image import TiledImage
 from dicomslide.matrix import TotalPixelMatrix, TotalPixelMatrixSampler
 from dicomslide.pyramid import (
@@ -20,10 +18,12 @@ from dicomslide.tile import (
     compute_frame_positions,
     disassemble_total_pixel_matrix,
 )
+from dicomslide.version import __version__
 
 
 __all__ = [
     'assemble_total_pixel_matrix',
+    'ChannelTypes',
     'compute_frame_positions',
     'compute_image_center_position',
     'disassemble_total_pixel_matrix',
@@ -42,4 +42,5 @@ __all__ = [
     'TiledImage',
     'TotalPixelMatrix',
     'TotalPixelMatrixSampler',
+    '__version__',
 ]

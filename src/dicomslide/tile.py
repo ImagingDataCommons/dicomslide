@@ -174,7 +174,7 @@ def compute_frame_positions(
     }
     num_channels = len(channels)
 
-    num_frames = int(image.NumberOfFrames)
+    num_frames = int(getattr(image, 'NumberOfFrames', '1'))
     focal_plane_indices = np.zeros((num_frames, ), dtype=int)
     matrix_positions = np.zeros((num_frames, 2), dtype=int)
     slide_positions = np.zeros((num_frames, 3), dtype=float)
@@ -182,7 +182,14 @@ def compute_frame_positions(
         channel_indices = np.zeros((num_frames, ), dtype=int)
         for i in range(num_frames):
             frame_item = image.PerFrameFunctionalGroupsSequence[i]
-            plane_pos_item = frame_item.PlanePositionSlideSequence[0]
+            try:
+                plane_pos_item = frame_item.PlanePositionSlideSequence[0]
+            except AttributeError as error:
+                raise AttributeError(
+                    f'Item #{i + 1} of Per-Frame Functional Groups Sequence '
+                    'does not have attribute Plane Position Slide Sequence: '
+                    f'{error}'
+                )
             matrix_positions[i, :] = (
                 int(plane_pos_item.RowPositionInTotalImagePixelMatrix) - 1,
                 int(plane_pos_item.ColumnPositionInTotalImagePixelMatrix) - 1,

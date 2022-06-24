@@ -5,14 +5,14 @@ import re
 
 import setuptools
 
-with io.open('src/dicomslide/__init__.py', 'rt', encoding='utf8') as f:
+with io.open('src/dicomslide/version.py', 'rt', encoding='utf8') as f:
     version = re.search(r'__version__ = \'(.*?)\'', f.read()).group(1)
 
 
 setuptools.setup(
     name='dicomslide',
     version=version,
-    description='High-level DICOM abstractions.',
+    description='Library for reading whole slide images in DICOM format.',
     author='Markus D. Herrmann',
     maintainer='Markus D. Herrmann',
     url='https://github.com/herrmannlab/dicomslide',
