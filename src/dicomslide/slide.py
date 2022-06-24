@@ -18,7 +18,6 @@ import numpy as np
 from dicomweb_client import DICOMClient
 from pydicom import Dataset
 from pydicom.sr.coding import Code
-from pydicom.uid import VLWholeSlideMicroscopyImageStorage
 from scipy.ndimage import rotate
 
 from dicomslide.enum import ChannelTypes
@@ -73,7 +72,9 @@ class Slide:
         client: dicomweb_client.api.DICOMClient
             DICOMweb client
         image_metadata: Sequence[pydicom.Dataset]
-            Metadata of images that belong to the slide
+            Metadata of DICOM VL Whole Slide Microscopy Image instances or of
+            derived DICOM Segmentation or Parametric Map instances that belong
+            to the slide
         max_frame_cache_size: int, optional
             Maximum number of frames that should be cached per image instance
             to avoid repeated retrieval requests
