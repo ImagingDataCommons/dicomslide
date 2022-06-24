@@ -140,7 +140,8 @@ def generate_test_images(
                     specimen_uid=specimen_uid,
                     **kwargs
                 )
-                lut[(container_id, frame_of_reference_uid)].append(image)
+                key = (study_instance_uid, container_id, frame_of_reference_uid)
+                lut[key].append(image)
     return lut
 
 

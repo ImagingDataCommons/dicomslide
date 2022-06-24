@@ -18,6 +18,11 @@ import numpy as np
 from dicomweb_client import DICOMClient
 from pydicom import Dataset
 from pydicom.sr.coding import Code
+from pydicom.uid import (
+    ParametricMapStorage,
+    SegmentationStorage,
+    VLWholeSlideMicroscopyImageStorage,
+)
 from scipy.ndimage import rotate
 
 from dicomslide.enum import ChannelTypes
@@ -1141,101 +1146,194 @@ def find_slides(
         Digital slides
 
     """  # noqa: E501
+    def bulk_data_uri_handler(
+        tag: str,
+        vr: str,
+        uri: str
+    ) -> Union[bytes, None]:
+        # Only retrieve ICC Profile
+        if tag != '00282000':
+            return None
+        return client.retrieve_bulkdata(uri)[0]
+
     # Find VL Whole Slide Microscopy Image instances
     logger.debug('search for slide microscopy image instances')
-    search_filters: Dict[str, str] = {'Modality': 'SM'}
+    search_filters: Dict[str, str] = {}
     if study_instance_uid is not None:
         search_filters['StudyInstanceUID'] = study_instance_uid
     if patient_id is not None:
         search_filters['PatientID'] = patient_id
     if study_id is not None:
         search_filters['StudyID'] = study_id
-    instance_search_results = [
-        Dataset.from_json(ds)
-        for ds in client.search_for_instances(search_filters=search_filters)
-    ]
-    logger.debug(
-        f'found n={len(instance_search_results)} '
-        'slide microscopy image instances'
-    )
 
-    # TODO: search for derived Segmentation or Parametric Map images
-
-    def bulk_data_uri_handler(
-        tag: str,
-        vr: str,
-        uri: str
-    ) -> Union[bytes, None]:
-        if tag != '00282000':
-            return None
-        return client.retrieve_bulkdata(uri)[0]
-
-    # Retrieve metadata of each VL Whole Slide Microscopy Image instance
-    logger.debug('retrieve metadata for found slide microscopy image instances')
-    instance_metadata = [
-        Dataset.from_json(
-            client.retrieve_instance_metadata(
-                study_instance_uid=result.StudyInstanceUID,
-                series_instance_uid=result.SeriesInstanceUID,
-                sop_instance_uid=result.SOPInstanceUID,
-            ),
-            bulk_data_uri_handler=bulk_data_uri_handler
-        )
-        for result in instance_search_results
-    ]
-
-    # Group images by Container Identifier and Frame of Reference UID
-    logger.debug('filter image instances using retrieve metadata')
-    lut = defaultdict(list)
-    for metadata in instance_metadata:
-        if study_instance_uid is not None:
-            if metadata.StudyInstanceUID != study_instance_uid:
-                logger.debug(
-                    f'skip image "{metadata.SOPInstanceUID}" because it does '
-                    f'not match the Study Instance UID "{study_instance_uid}"'
-                )
-                continue
-
-        if patient_id is not None:
-            if metadata.PatientID != patient_id:
-                logger.debug(
-                    f'skip image "{metadata.SOPInstanceUID}" because it does '
-                    f'not match the Patient ID "{patient_id}"'
-                )
-                continue
-
-        if study_id is not None:
-            if metadata.StudyID != study_id:
-                logger.debug(
-                    f'skip image "{metadata.SOPInstanceUID}" because it does '
-                    f'not match the Study ID "{study_id}"'
-                )
-                continue
-
-        if container_id is not None:
-            if metadata.ContainerIdentifier != container_id:
-                logger.debug(
-                    f'skip image "{metadata.SOPInstanceUID}" because it does '
-                    f'not match the Container Identifier "{container_id}"'
-                )
-                continue
-        try:
-            current_container_id = metadata.ContainerIdentifier
-            current_frame_of_reference_uid = metadata.FrameOfReferenceUID
-        except AttributeError:
-            logger.warning(
-                f'skip image "{metadata.SOPInstanceUID}" because of missing '
-                'metadata elements'
+    # Search for instances per study to speed up subsequent queries.
+    if len(search_filters) > 0:
+        study_search_results = [
+            Dataset.from_json(ds)
+            for ds in client.search_for_studies(
+                search_filters=search_filters,
+                get_remaining=True
             )
-            continue
+        ]
+    else:
+        study_search_results = [
+            Dataset.from_json(ds)
+            for ds in client.search_for_studies(get_remaining=True)
+        ]
+    if len(study_search_results) == 0:
+        return []
 
-        key = (current_container_id, current_frame_of_reference_uid)
-        lut[key].append(metadata)
-    logger.debug(f'retained n={len(lut)} image instances')
+    lut = defaultdict(list)
+    for study in study_search_results:
+        current_study_instance_uid = study.StudyInstanceUID
+        instance_search_results = []
+        # We could search by SOPClassUID directly, but some archives don't
+        # support this attribute as a query parameter (although they should
+        # according to the standard).
+        sm_image_instance_search_results = [
+            Dataset.from_json(ds)
+            for ds in client.search_for_instances(
+                study_instance_uid=current_study_instance_uid,
+                search_filters={'Modality': 'SM'}
+            )
+        ]
+        sm_image_instance_search_results = [
+            instance
+            for instance in sm_image_instance_search_results
+            if instance.SOPClassUID == VLWholeSlideMicroscopyImageStorage
+        ]
+        logger.debug(
+            f'found n={len(sm_image_instance_search_results)} '
+            'slide microscopy image instances '
+            f'for study "{study.StudyInstanceUID}"'
+        )
+        instance_search_results.extend(sm_image_instance_search_results)
 
-    logger.debug('create slide objects for image instances')
+        seg_image_instance_search_results = [
+            Dataset.from_json(ds)
+            for ds in client.search_for_instances(
+                study_instance_uid=current_study_instance_uid,
+                search_filters={'Modality': 'SEG'}
+            )
+        ]
+        seg_image_instance_search_results = [
+            instance
+            for instance in sm_image_instance_search_results
+            if instance.SOPClassUID == SegmentationStorage
+        ]
+        logger.debug(
+            f'found n={len(seg_image_instance_search_results)} '
+            'segmentation image instances '
+            f'for study "{study.StudyInstanceUID}"'
+        )
+        instance_search_results.extend(seg_image_instance_search_results)
+
+        pm_image_instance_search_results = [
+            Dataset.from_json(ds)
+            for ds in client.search_for_instances(
+                study_instance_uid=current_study_instance_uid,
+                search_filters={'Modality': 'OT'}
+            )
+        ]
+        pm_image_instance_search_results = [
+            instance
+            for instance in sm_image_instance_search_results
+            if instance.SOPClassUID == ParametricMapStorage
+        ]
+        logger.debug(
+            f'found n={len(pm_image_instance_search_results)} '
+            'parametric map image instances '
+            f'for study "{study.StudyInstanceUID}"'
+        )
+        instance_search_results.extend(pm_image_instance_search_results)
+        logger.debug(
+            f'found n={len(instance_search_results)} image instances '
+            f'for study "{study.StudyInstanceUID}"'
+        )
+
+        logger.debug('filter image instances based on metadata')
+        for instance in instance_search_results:
+            logger.debug(
+                'retrieve metadata for '
+                f'image instance "{instance.SOPInstanceUID}"'
+            )
+            metadata = Dataset.from_json(
+                client.retrieve_instance_metadata(
+                    study_instance_uid=current_study_instance_uid,
+                    series_instance_uid=instance.SeriesInstanceUID,
+                    sop_instance_uid=instance.SOPInstanceUID,
+                ),
+                bulk_data_uri_handler=bulk_data_uri_handler
+            )
+
+            # These checks should not be necessary, because we are using these
+            # attributes to search for studies in the first place. However,
+            # some archives get this wrong. Safety first!
+            if study_instance_uid is not None:
+                if metadata.StudyInstanceUID != study_instance_uid:
+                    logger.debug(
+                        f'skip image "{metadata.SOPInstanceUID}" because it '
+                        'does not match the Study Instance UID '
+                        f'"{study_instance_uid}"'
+                    )
+                    continue
+            if patient_id is not None:
+                if metadata.PatientID != patient_id:
+                    logger.debug(
+                        f'skip image "{metadata.SOPInstanceUID}" because it '
+                        f'does not match the Patient ID "{patient_id}"'
+                    )
+                    continue
+            if study_id is not None:
+                if metadata.StudyID != study_id:
+                    logger.debug(
+                        f'skip image "{metadata.SOPInstanceUID}" because it '
+                        f'does not match the Study ID "{study_id}"'
+                    )
+                    continue
+
+            try:
+                current_container_id = metadata.ContainerIdentifier
+            except AttributeError:
+                logger.debug(
+                    f'skip image "{metadata.SOPInstanceUID}" because it '
+                    'does not have a Container Identifier attribute'
+                )
+                continue
+
+            if container_id is not None:
+                if current_container_id != container_id:
+                    logger.debug(
+                        f'skip image "{metadata.SOPInstanceUID}" because it '
+                        f'does not match Container Identifier "{container_id}"'
+                    )
+                    continue
+
+            try:
+                current_frame_of_reference_uid = metadata.FrameOfReferenceUID
+            except AttributeError:
+                logger.warning(
+                    f'skip image "{metadata.SOPInstanceUID}" because it '
+                    'does not have a Frame of Reference UID attribute'
+                )
+                continue
+
+            logger.debug(
+                f'assign image "{metadata.SOPInstanceUID}" to slide with '
+                f'Study Instance UID "{current_study_instance_uid}", '
+                f'Container Identifier "{current_container_id}", and '
+                f'Frame of Reference UID "{current_frame_of_reference_uid}"'
+            )
+            key = (
+                current_study_instance_uid,
+                current_container_id,
+                current_frame_of_reference_uid,
+            )
+            lut[key].append(metadata)
+
+    logger.debug(f'create n={len(lut)} slide objects')
     found_slides = []
-    for key, image_metadata in lut.items():
+    for _, image_metadata in lut.items():
         ref_image = image_metadata[0]
         logger.debug(
             f'create slide for images of study "{ref_image.StudyInstanceUID}" '
