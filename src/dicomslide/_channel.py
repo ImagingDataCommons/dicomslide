@@ -1,16 +1,19 @@
 from typing import Callable, List, NamedTuple, Tuple
 
 from pydicom.dataset import Dataset
-from pydicom._storage_sopclass_uids import (
+from pydicom.uid import (
     ParametricMapStorage,
     SegmentationStorage,
     VLWholeSlideMicroscopyImageStorage,
 )
 
+from dicomslide.enum import ChannelTypes
+
 
 class _ChannelInfo(NamedTuple):
 
-    identifier: str
+    channel_type: ChannelTypes
+    channel_identifier: str
     sop_class_uid: str
     sop_instance_uid: str
 
@@ -47,6 +50,7 @@ def _get_channel_info(image: Dataset) -> Tuple[
     sop_instance_uid = image.SOPInstanceUID
     channel_identifiers: Tuple[str, ...]
     get_referenced_identifier: Callable[[Dataset], str]
+    channel_type: ChannelTypes
     if sop_class_uid == VLWholeSlideMicroscopyImageStorage:
         def get_referenced_identifier(item: Dataset) -> str:
             # Optical Path Identification Macro
@@ -56,6 +60,7 @@ def _get_channel_info(image: Dataset) -> Tuple[
                 .OpticalPathIdentifier
             )
 
+        channel_type = ChannelTypes.OPTICAL_PATH
         channel_identifiers = tuple([
             str(item.OpticalPathIdentifier)
             for item in image.OpticalPathSequence
@@ -70,6 +75,7 @@ def _get_channel_info(image: Dataset) -> Tuple[
                 .ReferencedSegmentNumber
             )
 
+        channel_type = ChannelTypes.SEGMENT
         channel_identifiers = tuple([
             str(item.SegmentNumber)
             for item in image.SegmentSequence
@@ -82,6 +88,7 @@ def _get_channel_info(image: Dataset) -> Tuple[
                 for item in item.RealWorldValueMappingSequence
             ])
 
+        channel_type = ChannelTypes.PARAMETER
         shared_item = image.SharedFunctionalGroupsSequence[0]
         if hasattr(shared_item, 'RealWorldValueMappingSequence'):
             channel_identifiers = (get_referenced_identifier(shared_item), )
@@ -103,7 +110,12 @@ def _get_channel_info(image: Dataset) -> Tuple[
         )
     return (
         [
-            _ChannelInfo(identifier, sop_class_uid, sop_instance_uid)
+            _ChannelInfo(
+                channel_type,
+                identifier,
+                sop_class_uid,
+                sop_instance_uid
+            )
             for identifier in channel_identifiers
         ],
         get_referenced_identifier

@@ -105,8 +105,10 @@ class TiledImage:
             focal_plane_indices = self._frame_positions[3]
             self._number_of_focal_planes = len(np.unique(focal_plane_indices))
 
-        channels, get_channel_identifier = _get_channel_info(self._metadata)
-        self._channel_identifiers = tuple([ch.identifier for ch in channels])
+        channels, _ = _get_channel_info(self._metadata)
+        self._channel_identifiers = tuple([
+            ch.channel_identifier for ch in channels
+        ])
         self._number_of_channels = len(self._channel_identifiers)
 
         iterator = itertools.product(

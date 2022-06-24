@@ -247,6 +247,87 @@ class Slide:
     def __hash__(self) -> int:
         return hash(self._quickhash)
 
+    def find_segments(
+        self,
+        number: Optional[int] = None,
+        label: Optional[str] = None,
+        property_category: Optional[Union[hd.sr.CodedConcept, Code]] = None,
+        property_type: Optional[Union[hd.sr.CodedConcept, Code]] = None
+    ) -> Tuple[int, ...]:
+        """Find segments.
+
+        Parameters
+        ----------
+        number: Union[int, None], optional
+            Segment number
+        label: Union[str, None], optional,
+            Segment label
+        property_category: Union[hd.sr.CodedConcept, Code, None], optional
+            Category of segmented property
+        property_type: Union[hd.sr.CodedConcept, Code, None], optional
+            Type of segmented property
+
+        Returns
+        -------
+        Tuple[int, ...]
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
+
+        """
+        def does_segment_match(
+            item: Dataset,
+            number: Optional[int] = None,
+            label: Optional[str] = None,
+            property_category: Optional[Union[hd.sr.CodedConcept, Code]] = None,
+            property_type: Optional[Union[hd.sr.CodedConcept, Code]] = None,
+        ) -> bool:
+            matches = []
+            if number is not None:
+                matches.append(item.SegmentNumber == number)
+            if label is not None:
+                matches.append(item.SegmentLabel == label)
+            if property_category is not None:
+                code_item = hd.sr.CodedConcept.from_dataset(
+                    item.SegmentedPropertyCategoryCodeSequence[0]
+                )
+                matches.append(code_item == property_category)
+            if property_type is not None:
+                code_item = hd.sr.CodedConcept.from_dataset(
+                    item.SegmentedPropertyTypeCodeSequence[0]
+                )
+                matches.append(code_item == property_type)
+            if len(matches) == 0:
+                return True
+            return any(matches)
+
+        matching_channel_indices = set()
+        for (channel_index, _), images in self._volume_images.items():
+            ref_image = images[0]
+            if ref_image.channel_type != ChannelTypes.SEGMENT:
+                continue
+            channel_identifier = self.get_channel_identifier(channel_index)
+            if number is not None:
+                if channel_identifier == str(number):
+                    return (channel_index, )
+
+            matching_optical_path_items = [
+                item
+                for item in ref_image.metadata.OpticalPathSequence
+                if item.SegmentNumber == channel_identifier
+            ]
+            segment_item = matching_optical_path_items[0]
+            if does_segment_match(
+                segment_item,
+                number,
+                label,
+                property_category,
+                property_type,
+            ):
+                matching_channel_indices.add(channel_index)
+
+        return tuple(matching_channel_indices)
+
     def find_optical_paths(
         self,
         identifier: Optional[str] = None,
@@ -319,7 +400,7 @@ class Slide:
                 return True
             return any(matches)
 
-        matching_optical_path_indices = set()
+        matching_channel_indices = set()
         for (channel_index, _), images in self._volume_images.items():
             ref_image = images[0]
             if ref_image.channel_type != ChannelTypes.OPTICAL_PATH:
@@ -352,9 +433,9 @@ class Slide:
                     specimen_stain
                 )
             ]):
-                matching_optical_path_indices.add(channel_index)
+                matching_channel_indices.add(channel_index)
 
-        return tuple(matching_optical_path_indices)
+        return tuple(matching_channel_indices)
 
     def get_volume_images(
         self,
@@ -689,8 +770,7 @@ class Slide:
             )
         else:
             image_channel_index = image.get_channel_index(
-                channel_identifier=self.get_channel_identifier(channel_index),
-                channel_type=self.get_channel_type(channel_index)
+                self.get_channel_identifier(channel_index)
             )
             image_focal_plane_index = image.get_focal_plane_index(
                 self.get_focal_plane_offset(focal_plane_index)
@@ -797,7 +877,7 @@ class Slide:
         region_cols = int(np.ceil(size[0] / pixel_spacing[0]))
 
         # Each image may have one or more channels or focal planes and the
-        # image-level indices differ from the slide-level indices.
+        # image-level indices may differ from the slide-level indices.
         if image.num_channels == 1 and image.num_focal_planes == 1:
             matrix = image.get_total_pixel_matrix(
                 channel_index=0,
@@ -806,8 +886,7 @@ class Slide:
         else:
             focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
             image_channel_index = image.get_channel_index(
-                channel_identifier=self.get_channel_identifier(channel_index),
-                channel_type=self.get_channel_type(channel_index)
+                self.get_channel_identifier(channel_index)
             )
             image_focal_plane_index = image.get_focal_plane_index(
                 focal_plane_offset

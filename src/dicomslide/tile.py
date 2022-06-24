@@ -169,7 +169,7 @@ def compute_frame_positions(
 
     channels, get_channel_identifier = _get_channel_info(image)
     channel_identifier_lut = {
-        str(ch.identifier): i
+        str(ch.channel_identifier): i
         for i, ch in enumerate(channels)
     }
     num_channels = len(channels)

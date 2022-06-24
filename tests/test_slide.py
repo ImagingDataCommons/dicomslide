@@ -221,8 +221,10 @@ def test_color_images(client, dimension_organization_type):
         assert len(slide.label_images) == 1
         assert len(slide.overview_images) == 1
 
+        assert len(slide.find_optical_paths()) == expected_num_optical_paths
         assert len(slide.find_optical_paths(identifier='1')) == 1
         assert len(slide.find_optical_paths(identifier='2')) == 0
+        assert len(slide.find_segments()) == 0
 
         np.testing.assert_array_equal(
             slide.get_image_region(
@@ -438,7 +440,9 @@ def test_grayscale_images(client):
         assert slide.num_focal_planes == expected_num_focal_planes
         assert slide.num_levels == expected_num_levels
         assert slide.downsampling_factors == expected_downsampling_factors
+        assert len(slide.find_optical_paths()) == expected_num_optical_paths
         assert len(slide.find_optical_paths(identifier='1')) == 1
+        assert len(slide.find_segments()) == 0
 
         for channel_index in range(expected_num_optical_paths):
             for focal_plane_index in range(expected_num_focal_planes):
