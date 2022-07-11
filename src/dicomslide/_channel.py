@@ -54,7 +54,7 @@ def _get_channel_info(image: Dataset) -> Tuple[
     if sop_class_uid == VLWholeSlideMicroscopyImageStorage:
         def get_referenced_identifier(item: Dataset) -> str:
             # Optical Path Identification Macro
-            return (
+            return str(
                 item
                 .OpticalPathIdentificationSequence[0]
                 .OpticalPathIdentifier
@@ -69,7 +69,7 @@ def _get_channel_info(image: Dataset) -> Tuple[
     elif sop_class_uid == SegmentationStorage:
         def get_referenced_identifier(item: Dataset) -> str:
             # Segmentation Macro
-            return (
+            return str(
                 item
                 .SegmentIdentificationSequence[0]
                 .ReferencedSegmentNumber
