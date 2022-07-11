@@ -65,10 +65,13 @@ def is_volume_image(dataset: Dataset) -> bool:
 
     """
     if is_image(dataset):
-        return dataset.ImageType[2] in (
-            ImageFlavors.VOLUME.value,
-            ImageFlavors.THUMBNAIL.value,
-        )
+        try:
+            return dataset.ImageType[2] in (
+                ImageFlavors.VOLUME.value,
+                ImageFlavors.THUMBNAIL.value,
+            )
+        except IndexError:
+            return True
     return False
 
 
@@ -87,7 +90,10 @@ def is_label_image(dataset: Dataset) -> bool:
 
     """
     if is_image(dataset):
-        return dataset.ImageType[2] == ImageFlavors.LABEL.value
+        try:
+            return dataset.ImageType[2] == ImageFlavors.LABEL.value
+        except IndexError:
+            return False
     return False
 
 
@@ -106,7 +112,10 @@ def is_overview_image(dataset: Dataset) -> bool:
 
     """
     if is_image(dataset):
-        return dataset.ImageType[2] == ImageFlavors.OVERVIEW.value
+        try:
+            return dataset.ImageType[2] == ImageFlavors.OVERVIEW.value
+        except IndexError:
+            return False
     return False
 
 

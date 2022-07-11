@@ -555,9 +555,10 @@ class TotalPixelMatrix:
             self._tile_grid_positions[:, 0] == position[0],
             self._tile_grid_positions[:, 1] == position[1]
         )
-        if matches.shape[0] == 0:
+        try:
+            return int(np.where(matches)[0][0])
+        except IndexError:
             raise IndexError(f'Could not find a tile at position {position}.')
-        return int(np.where(matches)[0][0])
 
     def _read_region(
         self,
@@ -687,7 +688,10 @@ class TotalPixelMatrix:
 
         frame_position_mapping = {}
         for (r, c) in itertools.product(row_tile_range, col_tile_range):
-            tile_index = self.get_tile_index((r, c))
+            try:
+                tile_index = self.get_tile_index((r, c))
+            except IndexError:
+                continue
             frame_index = self._frame_indices[tile_index]
             # (Column, Row) position of the frame in the region pixel matrix.
             # The top left frame is located at (1, 1).

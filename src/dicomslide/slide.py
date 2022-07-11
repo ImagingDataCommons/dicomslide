@@ -23,7 +23,6 @@ from pydicom.uid import (
     SegmentationStorage,
     VLWholeSlideMicroscopyImageStorage,
 )
-from scipy.ndimage import rotate
 
 from dicomslide.enum import ChannelTypes
 from dicomslide.image import TiledImage
@@ -156,29 +155,32 @@ class Slide:
         self._overview_images = tuple(overview_images)
         self._volume_images: Dict[Tuple[int, int], Tuple[TiledImage, ...]] = {}
 
-        unique_channel_identifiers = set()
+        unique_channel_identifiers = defaultdict(set)
         unique_focal_plane_offsets = set()
         for key in volume_images_lut.keys():
             channel_type, channel_id, focal_plane_offset = key
-            unique_channel_identifiers.add((channel_type, channel_id))
+            unique_channel_identifiers[channel_type].add(channel_id)
             unique_focal_plane_offsets.add(focal_plane_offset)
 
-        self._number_of_channels = len(unique_channel_identifiers)
+        self._number_of_channels = sum([
+            len(ids) for ids in unique_channel_identifiers.values()
+        ])
         self._channel_identifier_lut: Mapping[int, str] = OrderedDict()
         self._channel_type_lut: Mapping[int, ChannelTypes] = OrderedDict()
         self._channel_index_lut: Mapping[Tuple[ChannelTypes, str], int] = {}
-        for i, (channel_type, channel_id) in enumerate(
-            sorted(list(unique_channel_identifiers))
-        ):
-            self._channel_identifier_lut[i] = channel_id
-            self._channel_type_lut[i] = channel_type
-            self._channel_index_lut[(channel_type, channel_id)] = i
+        i = 0
+        for channel_type, channel_ids in unique_channel_identifiers.items():
+            for channel_id in sorted(channel_ids):
+                self._channel_identifier_lut[i] = channel_id
+                self._channel_type_lut[i] = channel_type
+                self._channel_index_lut[(channel_type, channel_id)] = i
+                i += 1
 
         self._number_of_focal_planes = len(unique_focal_plane_offsets)
         self._focal_plane_offset_lut: Mapping[int, float] = OrderedDict()
         self._focal_plane_index_lut: Mapping[float, int] = {}
         for i, focal_plane_offset in enumerate(
-            sorted(list(unique_focal_plane_offsets))
+            sorted(unique_focal_plane_offsets)
         ):
             self._focal_plane_offset_lut[i] = focal_plane_offset
             self._focal_plane_index_lut[focal_plane_offset] = i
@@ -186,6 +188,7 @@ class Slide:
         encoded_image_metadata = []
         for channel_index in self._channel_identifier_lut.keys():
             channel_id = self._channel_identifier_lut[channel_index]
+            channel_type = self._channel_type_lut[channel_index]
             for focal_plane_index in self._focal_plane_offset_lut.keys():
                 focal_plane_offset = self._focal_plane_offset_lut[
                     focal_plane_index
@@ -317,12 +320,12 @@ class Slide:
                 if channel_identifier == str(number):
                     return (channel_index, )
 
-            matching_optical_path_items = [
+            matching_segment_items = [
                 item
-                for item in ref_image.metadata.OpticalPathSequence
-                if item.SegmentNumber == channel_identifier
+                for item in ref_image.metadata.SegmentSequence
+                if channel_identifier == str(item.SegmentNumber)
             ]
-            segment_item = matching_optical_path_items[0]
+            segment_item = matching_segment_items[0]
             if does_segment_match(
                 segment_item,
                 number,
@@ -399,7 +402,12 @@ class Slide:
                     procedure = step.processing_procedure
                     if isinstance(procedure, hd.SpecimenStaining):
                         is_specimen_staining_described = True
-                        matches.append(specimen_stain in procedure.substances)
+                        substances = [
+                            item
+                            for item in procedure.substances
+                            if isinstance(item, hd.sr.CodedConcept)
+                        ]
+                        matches.append(specimen_stain in substances)
                 if not is_specimen_staining_described:
                     matches.append(False)
             if len(matches) == 0:
@@ -587,12 +595,53 @@ class Slide:
             )
 
     @property
+    def frame_of_reference_uid(self) -> str:
+        """str: Unique identifier of the frame of reference"""
+        volume_images = self.get_volume_images(
+            channel_index=0,
+            focal_plane_index=0
+        )
+        return volume_images[0].frame_of_reference_uid
+
+    @property
+    def physical_offset(self) -> Tuple[float, float]:
+        """Tuple[float, float]: Minimum offset of the total pixel matrices
+        from the origin of the frame of reference along the X and Y axes of the
+        slide coordinate system in millimeter
+
+        """
+        offsets = np.array([
+            volume_images[0].physical_offset
+            for volume_images in self._volume_images.values()
+        ])
+        return tuple(np.min(offsets, axis=0))
+
+    @property
+    def physical_size(self) -> Tuple[float, float]:
+        """Tuple[float, float]: Maximum size of the total pixel matrices along
+        the X and Y axes of the slide coordinate system in millimeter
+
+        """
+        x_offset, y_offset = self.physical_offset
+        sizes = []
+        for volume_images in self._volume_images.values():
+            image = volume_images[0]
+            x_endpoint, y_endpoint = image.get_slide_offset(image.size)
+            sizes.append(
+                (
+                    abs(x_endpoint - x_offset),
+                    abs(y_endpoint - y_offset),
+                )
+            )
+        return tuple(np.max(np.array(sizes), axis=0))
+
+    @property
     def num_focal_planes(self) -> int:
         """int: Number of focal planes"""
         return self._number_of_focal_planes
 
     def get_focal_plane_offset(self, focal_plane_index: int) -> float:
-        """Get z offset in slide coordinate system of focal plane.
+        """Get z offset of focal plane in slide coordinate system.
 
         Parameters
         ----------
@@ -730,9 +779,9 @@ class Slide:
         offset: Tuple[int, int]
             Zero-based (row, column) indices in the range [0, Rows) and
             [0, Columns), respectively, that specify the offset of the image
-            region in the total pixel matrix. The ``(0, 0)`` coordinate is
-            located at the center of the topleft hand pixel in the total pixel
-            matrix.
+            region in the total pixel matrix of the image at the highest
+            resolution level. The ``(0, 0)`` coordinate is located at the
+            center of the topleft hand pixel in the total pixel matrix.
         level: int
             Zero-based index into pyramid levels
         size: Tuple[int, int]
@@ -768,38 +817,26 @@ class Slide:
         except IndexError:
             raise IndexError(f'Slide does not have level {level}.')
 
-        # Each image may have one or more channels or focal planes and the
-        # image-level indices differ from the slide-level indices.
-        if image.num_channels == 1 and image.num_focal_planes == 1:
-            matrix = image.get_total_pixel_matrix(
-                channel_index=0,
-                focal_plane_index=0
-            )
-        else:
-            image_channel_index = image.get_channel_index(
-                self.get_channel_identifier(channel_index)
-            )
-            image_focal_plane_index = image.get_focal_plane_index(
-                self.get_focal_plane_offset(focal_plane_index)
-            )
-            matrix = image.get_total_pixel_matrix(
-                channel_index=image_channel_index,
-                focal_plane_index=image_focal_plane_index
-            )
-
         row_index, col_index = offset
         col_factor, row_factor = self._pyramid[level].downsampling_factors
         col_start = int(np.floor(col_index / col_factor))
         row_start = int(np.floor(row_index / row_factor))
-        rows, cols = size
-        row_stop = row_start + rows
-        col_stop = col_start + cols
-        logger.debug(
-            f'get region [{row_start}:{row_stop}, {col_start}:{col_stop}, :] '
-            f'at level {level} for channel {channel_index} and '
-            f'focal plane {focal_plane_index} '
+        image_offset = (row_start, col_start)
+
+        # Each image may have one or more channels or focal planes and the
+        # image-level indices may differ from the slide-level indices.
+        image_channel_index = image.get_channel_index(
+            self.get_channel_identifier(channel_index)
         )
-        return matrix[row_start:row_stop, col_start:col_stop, :]
+        image_focal_plane_index = image.get_focal_plane_index(
+            self.get_focal_plane_offset(focal_plane_index)
+        )
+        return image.get_image_region(
+            offset=image_offset,
+            size=size,
+            channel_index=image_channel_index,
+            focal_plane_index=image_focal_plane_index
+        )
 
     def get_slide_region(
         self,
@@ -863,80 +900,20 @@ class Slide:
         except IndexError:
             raise IndexError(f'Slide does not have level {level}.')
 
-        pixel_indices = np.array([
-            image.get_pixel_indices(
-                offset=offset,
-                focal_plane_index=focal_plane_index
-            ),
-            image.get_pixel_indices(
-                offset=(
-                    offset[0] + size[0],
-                    offset[1] + size[1],
-                ),
-                focal_plane_index=focal_plane_index
-            )
-        ])
-        row_index = np.min(pixel_indices[:, 0])
-        col_index = np.min(pixel_indices[:, 1])
-
-        pixel_spacing = self.pixel_spacings[level]
-        region_rows = int(np.ceil(size[1] / pixel_spacing[1]))
-        region_cols = int(np.ceil(size[0] / pixel_spacing[0]))
-
         # Each image may have one or more channels or focal planes and the
         # image-level indices may differ from the slide-level indices.
-        if image.num_channels == 1 and image.num_focal_planes == 1:
-            matrix = image.get_total_pixel_matrix(
-                channel_index=0,
-                focal_plane_index=0
-            )
-        else:
-            focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
-            image_channel_index = image.get_channel_index(
-                self.get_channel_identifier(channel_index)
-            )
-            image_focal_plane_index = image.get_focal_plane_index(
-                focal_plane_offset
-            )
-            matrix = image.get_total_pixel_matrix(
-                channel_index=image_channel_index,
-                focal_plane_index=image_focal_plane_index
-            )
-
-        region_col_start = 0
-        if col_index < 0:
-            region_col_start = abs(col_index)
-        region_row_start = 0
-        if row_index < 0:
-            region_row_start = abs(row_index)
-
-        # Region may extend beyond the image's total pixel matrix
-        col_start = min([max([col_index, 0]), matrix.shape[1] - 1])
-        row_start = min([max([row_index, 0]), matrix.shape[0] - 1])
-        cols = min([region_cols, matrix.shape[1] - col_start - 1])
-        rows = min([region_rows, matrix.shape[0] - row_start - 1])
-
-        col_stop = col_start + cols
-        row_stop = row_start + rows
-
-        region_row_stop = region_row_start + rows
-        region_col_stop = region_col_start + cols
-
-        region = np.zeros(
-            (region_rows, region_cols, matrix.shape[2]),
-            dtype=matrix.dtype
+        image_channel_index = image.get_channel_index(
+            self.get_channel_identifier(channel_index)
         )
-        if image.metadata.SamplesPerPixel == 3:
-            region += 255
-
-        region[
-            region_row_start:region_row_stop,
-            region_col_start:region_col_stop
-        ] = matrix[row_start:row_stop, col_start:col_stop, :]
-
-        degrees = image.get_rotation()
-
-        return rotate(region, angle=degrees)
+        image_focal_plane_index = image.get_focal_plane_index(
+            self.get_focal_plane_offset(focal_plane_index)
+        )
+        return image.get_slide_region(
+            offset=offset,
+            size=size,
+            channel_index=image_channel_index,
+            focal_plane_index=image_focal_plane_index
+        )
 
     def get_slide_region_for_annotation(
         self,
@@ -1218,7 +1195,7 @@ def find_slides(
         ]
         seg_image_instance_search_results = [
             instance
-            for instance in sm_image_instance_search_results
+            for instance in seg_image_instance_search_results
             if instance.SOPClassUID == SegmentationStorage
         ]
         logger.debug(

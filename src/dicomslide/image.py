@@ -1,7 +1,7 @@
 import itertools
 import logging
 from hashlib import sha256
-from typing import Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 import highdicom as hd
 import numpy as np
@@ -12,6 +12,7 @@ from pydicom.uid import (
     SegmentationStorage,
     VLWholeSlideMicroscopyImageStorage,
 )
+from scipy.ndimage import rotate
 
 from dicomslide._channel import _get_channel_info
 from dicomslide.enum import ChannelTypes
@@ -86,7 +87,15 @@ class TiledImage:
         retrieved separately over DICOMweb.
 
         """
+        if not isinstance(client, DICOMClient):
+            raise TypeError(
+                'Argument "client" must have type dicomweb_client.DICOMClient.'
+            )
         self._client = client
+        if not isinstance(image_metadata, Dataset):
+            raise TypeError(
+                'Argument "image_metadata" must have type pydicom.Dataset.'
+            )
         self._metadata = image_metadata
         # The Total Pixel Matrix Focal Planes attribute must be present in case
         # of Dimension Organization TILED_FULL and may be present otherwise.
@@ -111,6 +120,23 @@ class TiledImage:
         ])
         self._number_of_channels = len(self._channel_identifiers)
 
+        self._pixel_spacing = (
+            float(
+                self
+                .metadata
+                .SharedFunctionalGroupsSequence[0]
+                .PixelMeasuresSequence[0]
+                .PixelSpacing[0]
+            ),
+            float(
+                self
+                .metadata
+                .SharedFunctionalGroupsSequence[0]
+                .PixelMeasuresSequence[0]
+                .PixelSpacing[1]
+            ),
+        )
+
         iterator = itertools.product(
             range(self._number_of_channels),
             range(self._number_of_focal_planes),
@@ -129,10 +155,23 @@ class TiledImage:
         encoded_dataset = _encode_dataset(self._metadata)
         self._quickhash = sha256(encoded_dataset).hexdigest()
 
-        self._ref2pix_transformer: Union[
-            hd.spatial.ReferenceToPixelTransformer,
-            None
-        ] = None
+        image_orientation = self.metadata.ImageOrientationSlide
+        image_origin = self.metadata.TotalPixelMatrixOriginSequence[0]
+        image_position = (
+            float(image_origin.XOffsetInSlideCoordinateSystem),
+            float(image_origin.YOffsetInSlideCoordinateSystem),
+            0,  # assume that focal planes are parallel to slide surface
+        )
+        self._ref2pix_transformer = hd.spatial.ReferenceToPixelTransformer(
+            image_orientation=image_orientation,
+            image_position=image_position,
+            pixel_spacing=self._pixel_spacing,
+        )
+        self._pix2ref_transformer = hd.spatial.PixelToReferenceTransformer(
+            image_orientation=image_orientation,
+            image_position=image_position,
+            pixel_spacing=self._pixel_spacing,
+        )
 
     def __hash__(self) -> int:
         return hash(self._quickhash)
@@ -147,22 +186,40 @@ class TiledImage:
         """int: Number of channels"""
         return self._number_of_channels
 
+    def get_slide_offset(
+        self,
+        pixel_indices: Tuple[int, int],
+    ) -> Tuple[float, float]:
+        """Get slide coordinates for a given total pixel matrix position.
+
+        Parameters
+        ----------
+        pixel_indices: Tuple[int, int]
+            Zero-based (row, column) offset in the total pixel matrix
+
+        Returns
+        -------
+        Tuple[float, float]
+            Zero-based (x, y) position on the slide in the slide coordinate
+            system in millimeter
+
+        """
+        row_index, column_index = pixel_indices
+        pixel_indices = np.array([[column_index, row_index]])
+        slide_coordinates = self._pix2ref_transformer(pixel_indices)
+        return (slide_coordinates[0][0], slide_coordinates[0][1])
+
     def get_pixel_indices(
         self,
         offset: Tuple[float, float],
-        focal_plane_index: int
     ) -> Tuple[int, int]:
         """Get indices into total pixel matrix for a given slide position.
 
         Parameters
         ----------
         offset: Tuple[float, float]
-            Zero-based (x, y) offset in the slide coordinate system
-        focal_plane_index: int
-            Zero-based index into focal planes along depth direction from the
-            glass slide towards the coverslip in the slide coordinate system
-            specified by the Z Offset in Slide Coordinate System attribute.
-            Values must be in the range [0, Total Pixel Matrix Focal Planes)
+            Zero-based (x, y) offset in the slide coordinate system in
+            millimeter
 
         Returns
         -------
@@ -176,39 +233,7 @@ class TiledImage:
         the slide that was not imaged.
 
         """
-        focal_plane_offset = self.get_focal_plane_offset(focal_plane_index)
-        if self._ref2pix_transformer is None:
-            image_orientation = self.metadata.ImageOrientationSlide
-            image_origin = self.metadata.TotalPixelMatrixOriginSequence[0]
-            image_position = (
-                float(image_origin.XOffsetInSlideCoordinateSystem),
-                float(image_origin.YOffsetInSlideCoordinateSystem),
-                focal_plane_offset / 10**3,
-            )
-            pixel_spacing = (
-                float(
-                    self
-                    .metadata
-                    .SharedFunctionalGroupsSequence[0]
-                    .PixelMeasuresSequence[0]
-                    .PixelSpacing[0]
-                ),
-                float(
-                    self
-                    .metadata
-                    .SharedFunctionalGroupsSequence[0]
-                    .PixelMeasuresSequence[0]
-                    .PixelSpacing[1]
-                ),
-            )
-            self._ref2pix_transformer = hd.spatial.ReferenceToPixelTransformer(
-                image_orientation=image_orientation,
-                image_position=image_position,
-                pixel_spacing=pixel_spacing,
-            )
-        slide_coordinates = np.array([
-            [offset[0], offset[1], focal_plane_offset / 10**3]
-        ])
+        slide_coordinates = np.array([[offset[0], offset[1], 0]])
         pixel_indices = self._ref2pix_transformer(slide_coordinates)
         return (
             int(pixel_indices[0, 1]),
@@ -245,6 +270,80 @@ class TiledImage:
             )
 
         return degrees
+
+    @property
+    def frame_of_reference_uid(self) -> str:
+        """str: Unique identifier of the frame of reference"""
+        return str(self._metadata.FrameOfReferenceUID)
+
+    @property
+    def physical_offset(self) -> Tuple[float, float]:
+        """Tuple[float, float]: Offset of the total pixel matrix from the
+        origin of the frame of reference along the X and Y axes of the slide
+        coordinate system in millimeter
+
+        """
+        image_origin = self._metadata.TotalPixelMatrixOriginSequence[0]
+        return (
+            float(image_origin.XOffsetInSlideCoordinateSystem),
+            float(image_origin.YOffsetInSlideCoordinateSystem),
+        )
+
+    @property
+    def physical_size(self) -> Tuple[float, float]:
+        """Tuple[float, float]: Size of the total pixel matrix along the X and
+        Y axes of the slide coordinate system in millimeter
+
+        """
+        x_endpoint, y_endpoint = self.get_slide_offset(pixel_indices=self.size)
+        x_offset, y_offset = self.physical_offset
+        return (
+            abs(x_endpoint - x_offset),
+            abs(y_endpoint - y_offset),
+        )
+
+    @property
+    def size(self) -> Tuple[int, int]:
+        """Tuple[int, int]: Number of total pixel matrix rows and columns"""
+        return (
+            int(self._metadata.TotalPixelMatrixRows),
+            int(self._metadata.TotalPixelMatrixColumns),
+        )
+
+    def get_references(
+        self,
+        sop_class_uid: Optional[str] = None
+    ) -> List[Tuple[str, str, str]]:
+        """Get unique identifiers of referenced instances.
+
+        Parameters
+        ----------
+        sop_class_uid: str
+            SOP Class UID of instances for which references should be obtained
+
+        Returns
+        -------
+        List[Tuple[str, str, str]]
+            Study, Series, and SOP Instance UID of each referenced image
+
+        """
+        uids: List[Tuple[str, str, str]] = []
+        study_instance_uid = self._metadata.StudyInstanceUID
+        for series in getattr(self._metadata, 'ReferencedSeriesSequence', []):
+            series_instance_uid = series.SeriesInstanceUID
+            for instance in series.ReferencedInstanceSequence:
+                sop_instance_uid = instance.ReferencedSOPInstanceUID
+                if sop_class_uid is not None:
+                    if sop_class_uid != instance.ReferencedSOPClassUID:
+                        continue
+                uids.append(
+                    (
+                        study_instance_uid,
+                        series_instance_uid,
+                        sop_instance_uid,
+                    )
+                )
+        return uids
 
     def get_channel_index(self, channel_identifier: str) -> int:
         """Get index of a channel.
@@ -354,8 +453,10 @@ class TiledImage:
             When no focal plane is found for `focal_plane_offset`
 
         """
-        if self._frame_positions is None:
-            self._frame_positions = compute_frame_positions(self._metadata)
+        # Computing the focal plane index may be expensive, so only do it if
+        # there are multiple focal planes.
+        if self.num_focal_planes == 1:
+            return 0
         slide_positions = self._frame_positions[1]
         focal_plane_indices = self._frame_positions[3]
         index = slide_positions[:, 2] == focal_plane_offset
@@ -492,3 +593,159 @@ class TiledImage:
                 f'optical path {channel_index} and '
                 f'focal plane {focal_plane_index}.'
             )
+
+    def get_image_region(
+        self,
+        offset: Tuple[int, int],
+        size: Tuple[int, int],
+        channel_index: int = 0,
+        focal_plane_index: int = 0
+    ) -> np.ndarray:
+        """Get image region.
+
+        Parameters
+        ----------
+        offset: Tuple[int, int]
+            Zero-based (row, column) indices in the range [0, Rows) and
+            [0, Columns), respectively, that specify the offset of the image
+            region in the total pixel matrix. The ``(0, 0)`` coordinate is
+            located at the center of the topleft hand pixel in the total pixel
+            matrix.
+        size: Tuple[int, int]
+            Rows and columns of the requested image region
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute.
+        focal_plane_index: int, optional
+            Zero-based index into focal planes along depth direction from the
+            glass slide towards the coverslip in the slide coordinate system
+            specified by the Z Offset in Slide Coordinate System attribute.
+            Values must be in the range [0, Total Pixel Matrix Focal Planes)
+
+        Returns
+        -------
+        numpy.ndarray
+            Three-dimensional pixel array of shape
+            (Rows, Columns, Samples per Pixel) for the requested image region
+
+        """
+        matrix = self.get_total_pixel_matrix(
+            channel_index=channel_index,
+            focal_plane_index=focal_plane_index
+        )
+
+        row_start, col_start = offset
+        rows, cols = size
+        row_stop = row_start + rows
+        col_stop = col_start + cols
+        logger.debug(
+            f'get region [{row_start}:{row_stop}, {col_start}:{col_stop}, :] '
+            f'for channel {channel_index} and focal plane {focal_plane_index} '
+            f'of image "{self._metadata.SOPInstanceUID}"'
+        )
+        return matrix[row_start:row_stop, col_start:col_stop, :]
+
+    def get_slide_region(
+        self,
+        offset: Tuple[float, float],
+        size: Tuple[float, float],
+        channel_index: int = 0,
+        focal_plane_index: int = 0
+    ) -> np.ndarray:
+        """Get slide region.
+
+        Parameters
+        ----------
+        offset: Tuple[float, float]
+            Zero-based (x, y) offset in the slide coordinate system in
+            millimeter resolution. The ``(0.0, 0.0)`` coordinate is located at
+            the origin of the slide (usually the slide corner).
+        size: Tuple[float, float]
+            Width and height of the requested slide region in millimeter unit
+            along the X and Y axis of the slide coordinate system, respectively.
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute.
+        focal_plane_index: int, optional
+            Zero-based index into focal planes along depth direction from the
+            glass slide towards the coverslip in the slide coordinate system
+            specified by the Z Offset in Slide Coordinate System attribute.
+            Values must be in the range [0, Total Pixel Matrix Focal Planes)
+
+        Returns
+        -------
+        numpy.ndarray
+            Three-dimensional pixel array of shape
+            (Rows, Columns, Samples per Pixel) for the requested slide region
+
+        Note
+        ----
+        The slide coordinate system is defined for the upright standing slide
+        such that the X axis corresponds to the short side of the slide and the
+        Y axis corresponds to the long side of the slide.
+        The rows of the returned pixel array are thus parallel to the X axis of
+        the slide coordinate system and the columns parallel to the Y axis of
+        the slide coordinate system.
+
+        """
+        logger.debug(
+            f'get region on slide of size {size} [mm] at offset {offset} [mm] '
+            f'for channel {channel_index} and focal plane {focal_plane_index} '
+            f'of image "{self._metadata.SOPInstanceUID}"'
+        )
+        matrix = self.get_total_pixel_matrix(
+            channel_index=channel_index,
+            focal_plane_index=focal_plane_index
+        )
+
+        pixel_indices = np.array([
+            self.get_pixel_indices(offset=offset),
+            self.get_pixel_indices(
+                offset=(
+                    offset[0] + size[0],
+                    offset[1] + size[1],
+                )
+            )
+        ])
+        row_index = np.min(pixel_indices[:, 0])
+        col_index = np.min(pixel_indices[:, 1])
+
+        region_rows = int(np.ceil(size[1] / self._pixel_spacing[1]))
+        region_cols = int(np.ceil(size[0] / self._pixel_spacing[0]))
+
+        # Region may extend beyond the image's total pixel matrix
+        col_diff = abs(min([col_index, 0]))
+        row_diff = abs(min([row_index, 0]))
+        col_start = min([max([col_index, col_diff]), matrix.shape[1] - 1])
+        row_start = min([max([row_index, row_diff]), matrix.shape[0] - 1])
+        cols = min([region_cols - col_start, matrix.shape[1] - col_start - 1])
+        rows = min([region_rows - row_start, matrix.shape[0] - row_start - 1])
+
+        col_stop = col_start + cols
+        row_stop = row_start + rows
+
+        region_col_start = 0
+        if col_index < 0:
+            region_col_start = abs(col_index)
+        region_col_stop = region_col_start + cols
+
+        region_row_start = 0
+        if row_index < 0:
+            region_row_start = abs(row_index)
+        region_row_stop = region_row_start + rows
+
+        region = np.zeros(
+            (region_rows, region_cols, matrix.shape[2]),
+            dtype=matrix.dtype
+        )
+        if self.metadata.SamplesPerPixel == 3:
+            region += 255
+
+        region[
+            region_row_start:region_row_stop,
+            region_col_start:region_col_stop
+        ] = matrix[row_start:row_stop, col_start:col_stop, :]
+
+        degrees = self.get_rotation()
+
+        return rotate(region, angle=degrees)

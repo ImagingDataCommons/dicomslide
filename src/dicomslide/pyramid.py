@@ -354,44 +354,51 @@ class Pyramid:
             )
 
         base_image = metadata[0]
-        self._levels = tuple([
-            PyramidLevel(
+        levels = []
+        for image in metadata:
+            downsampling_factors: Tuple[float, float]
+            total_pixel_matrix_dimensions = (
+                image.TotalPixelMatrixRows,
+                image.TotalPixelMatrixColumns,
+            )
+            imaged_volume_dimensions = (
+                float(image.ImagedVolumeWidth),
+                float(image.ImagedVolumeHeight),
+                float(image.ImagedVolumeDepth),
+            )
+            pixel_spacing = (
+                float(
+                    image
+                    .SharedFunctionalGroupsSequence[0]
+                    .PixelMeasuresSequence[0]
+                    .PixelSpacing[1]
+                ),
+                float(
+                    image
+                    .SharedFunctionalGroupsSequence[0]
+                    .PixelMeasuresSequence[0]
+                    .PixelSpacing[0]
+                ),
+            )
+            downsampling_factors = (
                 (
-                    image.TotalPixelMatrixRows,
-                    image.TotalPixelMatrixColumns,
+                    base_image.TotalPixelMatrixRows /
+                    image.TotalPixelMatrixRows
                 ),
                 (
-                    float(image.ImagedVolumeWidth),
-                    float(image.ImagedVolumeHeight),
-                    float(image.ImagedVolumeDepth),
+                    base_image.TotalPixelMatrixColumns /
+                    image.TotalPixelMatrixColumns
                 ),
-                (
-                    float(
-                        image
-                        .SharedFunctionalGroupsSequence[0]
-                        .PixelMeasuresSequence[0]
-                        .PixelSpacing[1]
-                    ),
-                    float(
-                        image
-                        .SharedFunctionalGroupsSequence[0]
-                        .PixelMeasuresSequence[0]
-                        .PixelSpacing[0]
-                    ),
-                ),
-                (
-                    (
-                        base_image.TotalPixelMatrixRows /
-                        image.TotalPixelMatrixRows
-                    ),
-                    (
-                        base_image.TotalPixelMatrixColumns /
-                        image.TotalPixelMatrixColumns
-                    ),
+            )
+            levels.append(
+                PyramidLevel(
+                    total_pixel_matrix_dimensions,
+                    imaged_volume_dimensions,
+                    pixel_spacing,
+                    downsampling_factors,
                 )
             )
-            for image in metadata
-        ])
+        self._levels = tuple(levels)
         self._current_index = 0
 
     def __repr__(self) -> str:
