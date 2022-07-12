@@ -1,7 +1,7 @@
 import itertools
 import logging
 from hashlib import sha256
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 import highdicom as hd
 import numpy as np
@@ -205,8 +205,9 @@ class TiledImage:
 
         """
         row_index, column_index = pixel_indices
-        pixel_indices = np.array([[column_index, row_index]])
-        slide_coordinates = self._pix2ref_transformer(pixel_indices)
+        slide_coordinates = self._pix2ref_transformer(
+            np.array([[column_index, row_index]])
+        )
         return (slide_coordinates[0][0], slide_coordinates[0][1])
 
     def get_pixel_indices(
@@ -457,6 +458,8 @@ class TiledImage:
         # there are multiple focal planes.
         if self.num_focal_planes == 1:
             return 0
+        if self._frame_positions is None:
+            self._frame_positions = compute_frame_positions(self._metadata)
         slide_positions = self._frame_positions[1]
         focal_plane_indices = self._frame_positions[3]
         index = slide_positions[:, 2] == focal_plane_offset
@@ -714,25 +717,45 @@ class TiledImage:
         region_cols = int(np.ceil(size[0] / self._pixel_spacing[0]))
 
         # Region may extend beyond the image's total pixel matrix
-        col_diff = abs(min([col_index, 0]))
-        row_diff = abs(min([row_index, 0]))
-        col_start = min([max([col_index, col_diff]), matrix.shape[1] - 1])
-        row_start = min([max([row_index, row_diff]), matrix.shape[0] - 1])
-        cols = min([region_cols - col_start, matrix.shape[1] - col_start - 1])
-        rows = min([region_rows - row_start, matrix.shape[0] - row_start - 1])
-
+        col_overhang = abs(min([col_index, 0]))
+        col_start = min([
+            max([col_index, col_overhang]),
+            matrix.shape[1] - 1,
+        ])
+        cols = min([
+            region_cols - col_overhang,
+            matrix.shape[1] - col_start - 1,
+        ])
         col_stop = col_start + cols
-        row_stop = row_start + rows
-
-        region_col_start = 0
-        if col_index < 0:
-            region_col_start = abs(col_index)
+        region_col_start = col_overhang
         region_col_stop = region_col_start + cols
 
-        region_row_start = 0
-        if row_index < 0:
-            region_row_start = abs(row_index)
+        col_diff = (region_col_stop - region_col_start) - (col_stop - col_start)
+        if col_diff != 0:
+            raise RuntimeError(
+                'Failed to get slide region: '
+                'Could not determine the number of columns.'
+            )
+
+        row_overhang = abs(min([row_index, 0]))
+        row_start = min([
+            max([row_index, row_overhang]),
+            matrix.shape[0] - 1,
+        ])
+        rows = min([
+            region_rows - row_overhang,
+            matrix.shape[0] - row_start - 1,
+        ])
+        row_stop = row_start + rows
+        region_row_start = row_overhang
         region_row_stop = region_row_start + rows
+
+        row_diff = (region_row_stop - region_row_start) - (row_stop - row_start)
+        if row_diff != 0:
+            raise RuntimeError(
+                'Failed to get slide region: '
+                'Could not determine the number of rows.'
+            )
 
         region = np.zeros(
             (region_rows, region_cols, matrix.shape[2]),

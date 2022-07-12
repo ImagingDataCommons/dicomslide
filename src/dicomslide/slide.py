@@ -614,7 +614,8 @@ class Slide:
             volume_images[0].physical_offset
             for volume_images in self._volume_images.values()
         ])
-        return tuple(np.min(offsets, axis=0))
+        min_offsets = np.min(offsets, axis=0)
+        return (min_offsets[0], min_offsets[1])
 
     @property
     def physical_size(self) -> Tuple[float, float]:
@@ -633,7 +634,8 @@ class Slide:
                     abs(y_endpoint - y_offset),
                 )
             )
-        return tuple(np.max(np.array(sizes), axis=0))
+        max_sizes = np.max(np.array(sizes), axis=0)
+        return (max_sizes[0], max_sizes[1])
 
     @property
     def num_focal_planes(self) -> int:
