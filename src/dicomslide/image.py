@@ -723,7 +723,7 @@ class TiledImage:
             matrix.shape[1] - 1,
         ])
         cols = min([
-            region_cols - col_overhang,
+            region_cols - col_overhang - 1,
             matrix.shape[1] - col_start - 1,
         ])
         col_stop = col_start + cols
@@ -732,7 +732,7 @@ class TiledImage:
 
         col_diff = (region_col_stop - region_col_start) - (col_stop - col_start)
         if col_diff != 0:
-            raise RuntimeError(
+            raise ValueError(
                 'Failed to get slide region: '
                 'Could not determine the number of columns.'
             )
@@ -743,7 +743,7 @@ class TiledImage:
             matrix.shape[0] - 1,
         ])
         rows = min([
-            region_rows - row_overhang,
+            region_rows - row_overhang - 1,
             matrix.shape[0] - row_start - 1,
         ])
         row_stop = row_start + rows
@@ -752,7 +752,7 @@ class TiledImage:
 
         row_diff = (region_row_stop - region_row_start) - (row_stop - row_start)
         if row_diff != 0:
-            raise RuntimeError(
+            raise ValueError(
                 'Failed to get slide region: '
                 'Could not determine the number of rows.'
             )
@@ -764,10 +764,13 @@ class TiledImage:
         if self.metadata.SamplesPerPixel == 3:
             region += 255
 
-        region[
-            region_row_start:region_row_stop,
-            region_col_start:region_col_stop
-        ] = matrix[row_start:row_stop, col_start:col_stop, :]
+        try:
+            region[
+                region_row_start:region_row_stop,
+                region_col_start:region_col_stop
+            ] = matrix[row_start:row_stop, col_start:col_stop, :]
+        except ValueError as error:
+            raise ValueError(f'Failed to get slide region: {error}')
 
         degrees = self.get_rotation()
 

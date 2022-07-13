@@ -123,16 +123,6 @@ def test_pyramid(dimension_organization_type, mode):
             expected_downsampling_factors[i][0],
             expected_downsampling_factors[i][1],
         )
-        assert pyramid[i].imaged_volume_dimensions[:2] == (
-            (
-                image_kwargs[i]['total_pixel_matrix_columns'] *
-                image_kwargs[i]['pixel_spacing'][0]
-            ),
-            (
-                image_kwargs[i]['total_pixel_matrix_rows'] *
-                image_kwargs[i]['pixel_spacing'][1]
-            ),
-        )
 
 
 def test_sort_images():

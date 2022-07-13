@@ -203,22 +203,21 @@ def test_color_images(client, dimension_organization_type):
         assert slide.downsampling_factors == expected_downsampling_factors
         volume_images = slide.get_volume_images()
         assert len(volume_images) == expected_num_levels
-        expected_dimensions = tuple([
+        expected_sizes = [
             (
                 image.metadata.TotalPixelMatrixRows,
                 image.metadata.TotalPixelMatrixColumns,
             )
             for image in volume_images
-        ])
-        assert slide.total_pixel_matrix_dimensions == expected_dimensions
-        assert slide.imaged_volume_dimensions == tuple([
-            (
-                image.metadata.ImagedVolumeWidth,
-                image.metadata.ImagedVolumeHeight,
-                image.metadata.ImagedVolumeDepth,
-            )
-            for image in volume_images
-        ])
+        ]
+        assert slide.size == expected_sizes[0]
+        assert (
+            round(slide.physical_size[0], 3),
+            round(slide.physical_size[1], 3),
+        ) == (
+            round(float(volume_images[0].metadata.ImagedVolumeHeight), 3),
+            round(float(volume_images[0].metadata.ImagedVolumeWidth), 3),
+        )
         assert len(slide.label_images) == 1
         assert len(slide.overview_images) == 1
 
@@ -359,12 +358,12 @@ def test_color_images(client, dimension_organization_type):
         openslide = OpenSlide(slide)
         assert openslide.level_count == expected_num_levels
         assert openslide.dimensions == (
-            expected_dimensions[0][1],
-            expected_dimensions[0][0],
+            expected_sizes[0][1],
+            expected_sizes[0][0],
         )
         assert openslide.level_dimensions == tuple([
             (dimensions[1], dimensions[0])
-            for dimensions in expected_dimensions
+            for dimensions in expected_sizes
         ])
         assert openslide.level_downsamples == expected_downsampling_factors
         assert len(openslide.associated_images) == 2
@@ -456,14 +455,6 @@ def test_grayscale_images(client):
                     (
                         image.metadata.TotalPixelMatrixRows,
                         image.metadata.TotalPixelMatrixColumns,
-                    )
-                    for image in volume_images
-                ])
-                assert slide.imaged_volume_dimensions == tuple([
-                    (
-                        image.metadata.ImagedVolumeWidth,
-                        image.metadata.ImagedVolumeHeight,
-                        image.metadata.ImagedVolumeDepth,
                     )
                     for image in volume_images
                 ])

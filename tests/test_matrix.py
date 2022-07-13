@@ -86,7 +86,7 @@ def test_color(client):
     array = matrix[3:23, 5:15, :]
     assert array.shape == (20, 10, image.SamplesPerPixel)
     array = matrix[:256, 256:512, 0]
-    assert array.shape == (28, 0, 1)
+    assert array.shape == (30, 0, 1)
 
     assert matrix.get_tile_grid_position(0) == (0, 0)
     assert matrix.get_tile_grid_position(1) == (0, 1)

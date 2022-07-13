@@ -1,6 +1,6 @@
 import logging
 from operator import eq
-from typing import Iterator, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Dict, Iterator, List, NamedTuple, Optional, Sequence, Tuple
 
 import highdicom as hd
 import numpy as np
@@ -293,9 +293,31 @@ class PyramidLevel(NamedTuple):
     """Image pyramid level."""
 
     total_pixel_matrix_dimensions: Tuple[int, int]
-    imaged_volume_dimensions: Tuple[float, float, float]
     pixel_spacing: Tuple[float, float]
     downsampling_factors: Tuple[float, float]
+    has_pixels: bool
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, self.__class__):
+            return False
+        return all([
+            eq(
+                self.total_pixel_matrix_dimensions,
+                other.total_pixel_matrix_dimensions
+            ),
+            eq(
+                self.pixel_spacing,
+                other.pixel_spacing
+            ),
+            eq(
+                self.downsampling_factors,
+                other.downsampling_factors
+            ),
+            eq(
+                self.has_pixels,
+                other.has_pixels
+            ),
+        ])
 
 
 class Pyramid:
@@ -305,7 +327,8 @@ class Pyramid:
     def __init__(
         self,
         metadata: Sequence[Dataset],
-        tolerance: float
+        tolerance: float,
+        ref_metadata: Optional[Sequence[Dataset]] = None
     ) -> None:
         """
 
@@ -317,6 +340,9 @@ class Pyramid:
             Maximally tolerated distances between the centers of images at
             different pyramid levels in the slide coordinate system in
             millimeter unit
+        ref_metadata: Union[Sequence[pydicom.Dataset], None], optional
+            Metadata of referenced DICOM source image instances that may serve
+            as a template
 
         """
         if not all([is_volume_image(image) for image in metadata]):
@@ -353,18 +379,59 @@ class Pyramid:
                 f'differ by more than {tolerance} mm: \n{coordinates}'
             )
 
+        if ref_metadata is None:
+            ref_metadata = metadata
+
+        level_lut: Dict[Tuple[int, int], PyramidLevel] = {}
+        level_keys: List[Tuple[int, int]] = []
+        ref_base_image = ref_metadata[0]
+        for i, ref_image in enumerate(ref_metadata):
+            total_pixel_matrix_dimensions = (
+                ref_image.TotalPixelMatrixRows,
+                ref_image.TotalPixelMatrixColumns,
+            )
+            pixel_spacing = (
+                float(
+                    ref_image
+                    .SharedFunctionalGroupsSequence[0]
+                    .PixelMeasuresSequence[0]
+                    .PixelSpacing[1]
+                ),
+                float(
+                    ref_image
+                    .SharedFunctionalGroupsSequence[0]
+                    .PixelMeasuresSequence[0]
+                    .PixelSpacing[0]
+                ),
+            )
+            downsampling_factors = (
+                (
+                    ref_base_image.TotalPixelMatrixRows /
+                    ref_image.TotalPixelMatrixRows
+                ),
+                (
+                    ref_base_image.TotalPixelMatrixColumns /
+                    ref_image.TotalPixelMatrixColumns
+                ),
+            )
+            pyramid_level = PyramidLevel(
+                total_pixel_matrix_dimensions,
+                pixel_spacing,
+                downsampling_factors,
+                False
+            )
+            key = (
+                total_pixel_matrix_dimensions[0],
+                total_pixel_matrix_dimensions[1],
+            )
+            level_lut[key] = pyramid_level
+            level_keys.append(key)
+
         base_image = metadata[0]
-        levels = []
-        for image in metadata:
-            downsampling_factors: Tuple[float, float]
+        for i, image in enumerate(metadata):
             total_pixel_matrix_dimensions = (
                 image.TotalPixelMatrixRows,
                 image.TotalPixelMatrixColumns,
-            )
-            imaged_volume_dimensions = (
-                float(image.ImagedVolumeWidth),
-                float(image.ImagedVolumeHeight),
-                float(image.ImagedVolumeDepth),
             )
             pixel_spacing = (
                 float(
@@ -390,39 +457,63 @@ class Pyramid:
                     image.TotalPixelMatrixColumns
                 ),
             )
-            levels.append(
-                PyramidLevel(
-                    total_pixel_matrix_dimensions,
-                    imaged_volume_dimensions,
-                    pixel_spacing,
-                    downsampling_factors,
-                )
+            key = (
+                total_pixel_matrix_dimensions[0],
+                total_pixel_matrix_dimensions[1],
             )
-        self._levels = tuple(levels)
+            try:
+                ref_pyramid_level = level_lut[key]
+            except KeyError:
+                raise ValueError(
+                    'Pyramid level does not match any reference level.'
+                )
+            pyramid_level = PyramidLevel(
+                total_pixel_matrix_dimensions,
+                pixel_spacing,
+                downsampling_factors,
+                True
+            )
+            if not all([
+                eq(
+                    ref_pyramid_level.pixel_spacing,
+                    pyramid_level.pixel_spacing
+                ),
+                eq(
+                    ref_pyramid_level.downsampling_factors,
+                    pyramid_level.downsampling_factors
+                ),
+            ]):
+                raise ValueError(
+                    f'Pyramid level #{i} does not match corresponding level '
+                    'of reference pyramid.'
+                )
+            level_lut[key] = pyramid_level
+
+        self._levels = tuple([level_lut[key] for key in level_keys])
         self._current_index = 0
 
     def __repr__(self) -> str:
         parts = []
         for i, level in enumerate(self):
             parts.append(f'=== Pyramid Level {i} ===')
-            parts.append(
-                'Total Pixel Matrix Rows/Columns: '
-                f'{level.total_pixel_matrix_dimensions}'
-            )
-            parts.append(
-                'Imaged Volume Width/Height/Depth: '
-                f'{level.imaged_volume_dimensions}'
-            )
-            parts.append(
-                f'Pixel Spacing: {level.pixel_spacing}'
-            )
-            parts.append(
-                f'Downsampling Factors: {level.downsampling_factors}'
-            )
+            if level is not None:
+                parts.append(
+                    'Total Pixel Matrix Rows/Columns: '
+                    f'{level.total_pixel_matrix_dimensions}'
+                )
+                parts.append(
+                    f'Pixel Spacing: {level.pixel_spacing}'
+                )
+                parts.append(
+                    f'Downsampling Factors: {level.downsampling_factors}'
+                )
         return '\n'.join(parts)
 
     def __getitem__(self, key: int) -> PyramidLevel:
-        return self._levels[key]
+        try:
+            return self._levels[key]
+        except KeyError:
+            raise IndexError(f'Pyramid does not have level {key}.')
 
     def __delitem__(self, key: int) -> None:
         raise AttributeError('Cannot delete pyramid level.')
@@ -445,6 +536,21 @@ class Pyramid:
     def __len__(self) -> int:
         return len(self._levels)
 
+    def __contains__(self, item: object) -> bool:
+        if not isinstance(item, self.__class__):
+            return False
+        if len(self) != len(item):
+            return False
+        for i in range(len(self)):
+            level = self[i]
+            try:
+                other_level = item[i]
+            except IndexError:
+                return False
+            if level != other_level:
+                return False
+        return True
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
             return False
@@ -452,15 +558,14 @@ class Pyramid:
             return False
         for i in range(len(self)):
             level = self[i]
-            other_level = other[i]
+            try:
+                other_level = other[i]
+            except IndexError:
+                return False
             if not all([
                 eq(
                     level.total_pixel_matrix_dimensions,
                     other_level.total_pixel_matrix_dimensions
-                ),
-                eq(
-                    level.imaged_volume_dimensions,
-                    other_level.imaged_volume_dimensions
                 ),
                 eq(
                     level.pixel_spacing,
@@ -469,6 +574,10 @@ class Pyramid:
                 eq(
                     level.downsampling_factors,
                     other_level.downsampling_factors
+                ),
+                eq(
+                    level.has_pixels,
+                    other_level.has_pixels
                 ),
             ]):
                 return False

@@ -379,7 +379,9 @@ class TotalPixelMatrix:
     @property
     def dtype(self) -> np.dtype:
         """numpy.dtype: Data type"""
-        return np.dtype(f'uint{self._metadata.BitsAllocated}')
+        if int(self._metadata.BitsAllocated) >= 8:
+            return np.dtype(f'uint{self._metadata.BitsAllocated}')
+        return np.bool_
 
     @property
     def num_tiles(self) -> int:
@@ -598,6 +600,10 @@ class TotalPixelMatrix:
                 )
             if key[0].stop is None:
                 row_stop = self._metadata.TotalPixelMatrixRows
+            elif key[0].stop < 0:
+                row_stop = (
+                    self._metadata.TotalPixelMatrixRows - key[0].stop - 1
+                )
             else:
                 row_stop = min(
                     key[0].stop,
@@ -638,6 +644,10 @@ class TotalPixelMatrix:
                 )
             if key[1].stop is None:
                 col_stop = self._metadata.TotalPixelMatrixColumns
+            elif key[1].stop < 0:
+                col_stop = (
+                    self._metadata.TotalPixelMatrixColumns - key[1].stop - 1
+                )
             else:
                 col_stop = min(
                     key[1].stop,
@@ -685,6 +695,12 @@ class TotalPixelMatrix:
                 )
         else:
             raise TypeError('Sample index must be an integer or a slice.')
+
+        logger.debug(
+            'get region of total pixel matrix '
+            f'[{row_start}:{row_stop}, {col_start}:{col_stop}, '
+            f'{sample_start}:{sample_stop}]'
+        )
 
         frame_position_mapping = {}
         for (r, c) in itertools.product(row_tile_range, col_tile_range):
@@ -785,7 +801,7 @@ class TotalPixelMatrix:
                 if region_row_stop is not None:
                     if region_row_stop < 0:
                         adjusted_region_row_stop = np.sum([
-                            self._metadata.TotalPixelMatrixRows,
+                            len(row_tile_range) * self._rows,
                             region_row_stop
                         ])
                     else:
@@ -801,7 +817,7 @@ class TotalPixelMatrix:
                 if region_col_stop is not None:
                     if region_col_stop < 0:
                         adjusted_region_col_stop = np.sum([
-                            self._metadata.TotalPixelMatrixColumns,
+                            len(col_tile_range) * self._cols,
                             region_col_stop
                         ])
                     else:

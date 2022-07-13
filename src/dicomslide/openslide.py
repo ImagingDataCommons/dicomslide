@@ -196,7 +196,8 @@ class OpenSlide:
             OpenSlide properties
 
         """
-        image_metadata = self._volume_images[0].metadata
+        image = self._volume_images[0]
+        image_metadata = image.metadata
         pixel_spacing = (
             image_metadata
             .SharedFunctionalGroupsSequence[0]
@@ -232,8 +233,8 @@ class OpenSlide:
             OPENSLIDE_MPP_Y: str(pixel_spacing[1] * 10**3),
             OPENSLIDE_BOUNDS_X: x_offset,
             OPENSLIDE_BOUNDS_Y: y_offset,
-            OPENSLIDE_BOUNDS_WIDTH: image_metadata.ImagedVolumeWidth,
-            OPENSLIDE_BOUNDS_HEIGHT: image_metadata.ImagedVolumeHeight,
+            OPENSLIDE_BOUNDS_WIDTH: str(image.physical_size[1]),
+            OPENSLIDE_BOUNDS_HEIGHT: str(image.physical_size[0]),
         }
 
     def get_best_level_for_downsample(self, downsample: float) -> int:

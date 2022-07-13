@@ -185,6 +185,7 @@ class Slide:
             self._focal_plane_offset_lut[i] = focal_plane_offset
             self._focal_plane_index_lut[focal_plane_offset] = i
 
+        ref_image_metadata: List[TiledImage] = []
         encoded_image_metadata = []
         for channel_index in self._channel_identifier_lut.keys():
             channel_id = self._channel_identifier_lut[channel_index]
@@ -205,6 +206,11 @@ class Slide:
                     focal_plane_index,
                 )
                 self._volume_images[volume_image_key] = tuple(volume_images)
+                if (
+                    channel_type == ChannelTypes.OPTICAL_PATH and
+                    len(ref_image_metadata) == 0
+                ):
+                    ref_image_metadata.extend(volume_images)
                 encoded_image_metadata.extend([
                     _encode_dataset(image.metadata)
                     for images in volume_images
@@ -221,8 +227,15 @@ class Slide:
         ), image_collection in self._volume_images.items():
             try:
                 pyramids[(channel_index, focal_plane_index)] = Pyramid(
-                    metadata=[image.metadata for image in image_collection],
-                    tolerance=pyramid_tolerance
+                    metadata=[
+                        image.metadata
+                        for image in image_collection
+                    ],
+                    tolerance=pyramid_tolerance,
+                    ref_metadata=[
+                        image.metadata
+                        for image in ref_image_metadata
+                    ]
                 )
             except ValueError as error:
                 raise ValueError(
@@ -235,7 +248,7 @@ class Slide:
         # This requirement could potentially be relaxed in the future.
         ref_pyramid = pyramids[(0, 0)]
         for pyramid in pyramids.values():
-            if pyramid != ref_pyramid:
+            if pyramid not in ref_pyramid:
                 raise ValueError(
                     'Pyramids for different channels and focal planes must '
                     'have the same structure, i.e., the same number of levels '
@@ -618,6 +631,19 @@ class Slide:
         return (min_offsets[0], min_offsets[1])
 
     @property
+    def size(self) -> Tuple[int, int]:
+        """Tuple[int, int]: Maximum size of the total pixel matrices along
+        the rows and columns axes of the total pixel matrix
+
+        """
+        sizes = np.array([
+            volume_images[0].size
+            for volume_images in self._volume_images.values()
+        ])
+        max_sizes = np.max(sizes, axis=0)
+        return (max_sizes[0], max_sizes[1])
+
+    @property
     def physical_size(self) -> Tuple[float, float]:
         """Tuple[float, float]: Maximum size of the total pixel matrices along
         the X and Y axes of the slide coordinate system in millimeter
@@ -737,25 +763,6 @@ class Slide:
         return tuple([level.pixel_spacing for level in self._pyramid])
 
     @property
-    def imaged_volume_dimensions(
-        self
-    ) -> Tuple[Tuple[float, float, float], ...]:
-        """Tuple[Tuple[float, float, float], ...]: Width, height, and depth of
-        the imaged volume at each pyramid level in millimeter unit.
-
-        Note
-        ----
-        The imaged volume is supposed to be constant across pyramid levels.
-        However, there may be small discrepencies due to errors in the metadata
-        (e.g., rounding errors incurred during image resampling).
-
-        """
-        return tuple([
-            level.imaged_volume_dimensions
-            for level in self._pyramid
-        ])
-
-    @property
     def downsampling_factors(self) -> Tuple[float, ...]:
         """Tuple[float]: Downsampling factors of images at each pyramid level
         relative to the base level
@@ -805,11 +812,6 @@ class Slide:
             (Rows, Columns, Samples per Pixel) for the requested image region
 
         """
-        logger.debug(
-            f'get region of size {size} at offset {offset} '
-            f'at level {level} for channel {channel_index} and '
-            f'focal plane {focal_plane_index}'
-        )
         volume_images = self.get_volume_images(
             channel_index=channel_index,
             focal_plane_index=focal_plane_index
@@ -887,12 +889,6 @@ class Slide:
         the slide coordinate system.
 
         """
-        logger.debug(
-            f'get region on slide of size {size} [mm] at offset '
-            f'{offset} [mm] at level {level} for image '
-            f'with channel {channel_index} and focal plane '
-            f'{focal_plane_index}.'
-        )
         volume_images = self.get_volume_images(
             channel_index=channel_index,
             focal_plane_index=focal_plane_index
