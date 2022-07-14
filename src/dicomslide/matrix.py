@@ -329,6 +329,7 @@ class TotalPixelMatrix:
                 sop_instance_uid=self._metadata.SOPInstanceUID,
                 frame_numbers=selected_frame_numbers,
                 media_types=(
+                    ("application/octet-stream", "*"),
                     ("image/jpeg", "1.2.840.10008.1.2.4.50"),
                     ("image/jls", "1.2.840.10008.1.2.4.80"),
                     ("image/jls", "1.2.840.10008.1.2.4.81"),
@@ -336,7 +337,6 @@ class TotalPixelMatrix:
                     ("image/jp2", "1.2.840.10008.1.2.4.91"),
                     ("image/jpx", "1.2.840.10008.1.2.4.92"),
                     ("image/jpx", "1.2.840.10008.1.2.4.93"),
-                    ("application/octet-stream", "*"),
                 )
             )
             # Decode and cache retrieved frames
@@ -379,9 +379,9 @@ class TotalPixelMatrix:
     @property
     def dtype(self) -> np.dtype:
         """numpy.dtype: Data type"""
-        if int(self._metadata.BitsAllocated) >= 8:
-            return np.dtype(f'uint{self._metadata.BitsAllocated}')
-        return np.bool_
+        if int(self._metadata.BitsAllocated) == 1:
+            return np.dtype('bool')
+        return np.dtype(f'uint{self._metadata.BitsAllocated}')
 
     @property
     def num_tiles(self) -> int:
