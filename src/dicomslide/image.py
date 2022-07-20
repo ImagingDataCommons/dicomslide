@@ -186,6 +186,34 @@ class TiledImage:
         """int: Number of channels"""
         return self._number_of_channels
 
+    def map_pixel_indices_to_slide_coordinates(
+        self,
+        pixel_indices: np.ndarray,
+    ) -> np.ndarray:
+        """Map pixel indices to slide coordinates.
+
+        Parameters
+        ----------
+        pixel_indices: numpy.ndarray
+            Zero-based (row, column) indices into the total pixel matrix of the
+            image
+
+        Returns
+        -------
+        numpy.ndarray
+            Zero-based (x, y, z) coordinates in the slide coordinate system in
+            millimeter
+
+        """
+        coordinates = np.stack(
+            [
+                pixel_indices[:, 1],
+                pixel_indices[:, 0],
+            ],
+            axis=1
+        )
+        return self._pix2ref_transformer(coordinates)
+
     def get_slide_offset(
         self,
         pixel_indices: Tuple[int, int],
@@ -209,6 +237,34 @@ class TiledImage:
             np.array([[column_index, row_index]])
         )
         return (slide_coordinates[0][0], slide_coordinates[0][1])
+
+    def map_slide_coordinates_to_pixel_indices(
+        self,
+        slide_coordinates: np.ndarray,
+    ) -> np.ndarray:
+        """Map slide coordinates to pixel indices.
+
+        Parameters
+        ----------
+        slide_coordinates: numpy.ndarray
+            Zero-based (x, y, z) coordinates in the slide coordinate system in
+            millimeter
+
+        Returns
+        -------
+        numpy.ndarray
+            Zero-based (row, column) indices into the total pixel matrix of the
+            image
+
+        """
+        pixel_coordinates = self._ref2pix_transformer(slide_coordinates)
+        return np.stack(
+            [
+                pixel_coordinates[:, 1],
+                pixel_coordinates[:, 0],
+            ],
+            axis=1
+        )
 
     def get_pixel_indices(
         self,
@@ -234,7 +290,7 @@ class TiledImage:
         the slide that was not imaged.
 
         """
-        slide_coordinates = np.array([[offset[0], offset[1], 0]])
+        slide_coordinates = np.array([[offset[0], offset[1], 0.0]])
         pixel_indices = self._ref2pix_transformer(slide_coordinates)
         return (
             int(pixel_indices[0, 1]),

@@ -773,6 +773,183 @@ class Slide:
             for level in self._pyramid
         ])
 
+    def map_pixel_indices_to_slide_coordinates(
+        self,
+        pixel_indices: np.ndarray,
+        level: int,
+        channel_index: int = 0,
+        focal_plane_index: int = 0
+    ) -> np.ndarray:
+        """Map pixel indices to slide coordinates.
+
+        Parameters
+        ----------
+        pixel_indices: numpy.ndarray
+            Zero-based (row, column) indices into the total pixel matrix of the
+            image
+        level: int
+            Zero-based index into pyramid levels
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
+        focal_plane_index: int, optional
+            Zero-based index into focal planes along depth direction from the
+            glass slide towards the coverslip in the slide coordinate system
+            specified by the Z Offset in Slide Coordinate System attribute of
+            VOLUME or THUMBNAIL images.
+
+        Returns
+        -------
+        numpy.ndarray
+            Zero-based (x, y, z) coordinates in the slide coordinate system in
+            millimeter
+
+        """
+        volume_images = self.get_volume_images(
+            channel_index=channel_index,
+            focal_plane_index=focal_plane_index
+        )
+        try:
+            image = volume_images[level]
+        except IndexError:
+            raise IndexError(f'Slide does not have level {level}.')
+        return image.map_pixel_indices_to_slide_coordinates(pixel_indices)
+
+    def map_slide_coordinates_to_pixel_indices(
+        self,
+        slide_coordinates: np.ndarray,
+        level: int,
+        channel_index: int = 0,
+        focal_plane_index: int = 0
+    ) -> np.ndarray:
+        """Map slide coordinates to pixel indices.
+
+        Parameters
+        ----------
+        slide_coordinates: numpy.ndarray
+            Zero-based (x, y, z) coordinates in the slide coordinate system in
+            millimeter
+        level: int
+            Zero-based index into pyramid levels
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
+        focal_plane_index: int, optional
+            Zero-based index into focal planes along depth direction from the
+            glass slide towards the coverslip in the slide coordinate system
+            specified by the Z Offset in Slide Coordinate System attribute of
+            VOLUME or THUMBNAIL images.
+
+        Returns
+        -------
+        numpy.ndarray
+            Zero-based (row, column) indices into the total pixel matrix of the
+            image
+
+        """
+        volume_images = self.get_volume_images(
+            channel_index=channel_index,
+            focal_plane_index=focal_plane_index
+        )
+        try:
+            image = volume_images[level]
+        except IndexError:
+            raise IndexError(f'Slide does not have level {level}.')
+        return image.map_slide_coordinates_to_pixel_indices(slide_coordinates)
+
+    def get_slide_offset(
+        self,
+        pixel_indices: Tuple[int, int],
+        level: int,
+        channel_index: int = 0,
+        focal_plane_index: int = 0
+    ) -> Tuple[float, float]:
+        """Get slide coordinates for a given total pixel matrix position.
+
+        Parameters
+        ----------
+        pixel_indices: Tuple[int, int]
+            Zero-based (row, column) offset in the total pixel matrix
+        level: int
+            Zero-based index into pyramid levels
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
+        focal_plane_index: int, optional
+            Zero-based index into focal planes along depth direction from the
+            glass slide towards the coverslip in the slide coordinate system
+            specified by the Z Offset in Slide Coordinate System attribute of
+            VOLUME or THUMBNAIL images.
+
+        Returns
+        -------
+        Tuple[float, float]
+            Zero-based (x, y) position on the slide in the slide coordinate
+            system in millimeter
+
+        """
+        volume_images = self.get_volume_images(
+            channel_index=channel_index,
+            focal_plane_index=focal_plane_index
+        )
+        try:
+            image = volume_images[level]
+        except IndexError:
+            raise IndexError(f'Slide does not have level {level}.')
+        return image.get_slide_offset(pixel_indices)
+
+    def get_pixel_indices(
+        self,
+        offset: Tuple[float, float],
+        level: int,
+        channel_index: int = 0,
+        focal_plane_index: int = 0
+    ) -> Tuple[int, int]:
+        """Get indices into total pixel matrix for a given slide position.
+
+        Parameters
+        ----------
+        offset: Tuple[float, float]
+            Zero-based (x, y) offset in the slide coordinate system in
+            millimeter
+        level: int
+            Zero-based index into pyramid levels
+        channel_index: int, optional
+            Zero-based index into channels along the direction defined by
+            successive items of the appropriate DICOM attribute of VOLUME
+            or THUMBNAIL images.
+        focal_plane_index: int, optional
+            Zero-based index into focal planes along depth direction from the
+            glass slide towards the coverslip in the slide coordinate system
+            specified by the Z Offset in Slide Coordinate System attribute of
+            VOLUME or THUMBNAIL images.
+
+        Returns
+        -------
+        Tuple[int, int]
+            Zero-based (row, column) position in the total pixel matrix of the
+            image
+
+        Note
+        ----
+        Pixel position may be negativ or extend beyond the size of the total
+        pixel matrix if slide position at `offset` does fall into a region on
+        the slide that was not imaged.
+
+        """
+        volume_images = self.get_volume_images(
+            channel_index=channel_index,
+            focal_plane_index=focal_plane_index
+        )
+        try:
+            image = volume_images[level]
+        except IndexError:
+            raise IndexError(f'Slide does not have level {level}.')
+        return image.get_pixel_indices(offset)
+
     def get_image_region(
         self,
         offset: Tuple[int, int],
@@ -1088,7 +1265,8 @@ def find_slides(
     container_id: Optional[str] = None,
     max_frame_cache_size: int = 6,
     pyramid_tolerance: float = 0.1,
-    fail_on_error: bool = True
+    fail_on_error: bool = True,
+    include_derived: bool = True
 ) -> List[Slide]:
     """Find slides.
 
@@ -1114,6 +1292,9 @@ def find_slides(
     fail_on_error: bool, optional
         Wether the function should raise an exception in case an error occurs.
         If ``False``, slides will be skipped.
+    include_derived: bool, optional
+        Whether derived images (DICOM Segmentation or DICOM Parametric Map
+        instances) should be considered and included into slides
 
     Returns
     -------
@@ -1184,47 +1365,48 @@ def find_slides(
         )
         instance_search_results.extend(sm_image_instance_search_results)
 
-        seg_image_instance_search_results = [
-            Dataset.from_json(ds)
-            for ds in client.search_for_instances(
-                study_instance_uid=current_study_instance_uid,
-                search_filters={'Modality': 'SEG'}
+        if include_derived:
+            seg_image_instance_search_results = [
+                Dataset.from_json(ds)
+                for ds in client.search_for_instances(
+                    study_instance_uid=current_study_instance_uid,
+                    search_filters={'Modality': 'SEG'}
+                )
+            ]
+            seg_image_instance_search_results = [
+                instance
+                for instance in seg_image_instance_search_results
+                if instance.SOPClassUID == SegmentationStorage
+            ]
+            logger.debug(
+                f'found n={len(seg_image_instance_search_results)} '
+                'segmentation image instances '
+                f'for study "{study.StudyInstanceUID}"'
             )
-        ]
-        seg_image_instance_search_results = [
-            instance
-            for instance in seg_image_instance_search_results
-            if instance.SOPClassUID == SegmentationStorage
-        ]
-        logger.debug(
-            f'found n={len(seg_image_instance_search_results)} '
-            'segmentation image instances '
-            f'for study "{study.StudyInstanceUID}"'
-        )
-        instance_search_results.extend(seg_image_instance_search_results)
+            instance_search_results.extend(seg_image_instance_search_results)
 
-        pm_image_instance_search_results = [
-            Dataset.from_json(ds)
-            for ds in client.search_for_instances(
-                study_instance_uid=current_study_instance_uid,
-                search_filters={'Modality': 'OT'}
+            pm_image_instance_search_results = [
+                Dataset.from_json(ds)
+                for ds in client.search_for_instances(
+                    study_instance_uid=current_study_instance_uid,
+                    search_filters={'Modality': 'OT'}
+                )
+            ]
+            pm_image_instance_search_results = [
+                instance
+                for instance in sm_image_instance_search_results
+                if instance.SOPClassUID == ParametricMapStorage
+            ]
+            logger.debug(
+                f'found n={len(pm_image_instance_search_results)} '
+                'parametric map image instances '
+                f'for study "{study.StudyInstanceUID}"'
             )
-        ]
-        pm_image_instance_search_results = [
-            instance
-            for instance in sm_image_instance_search_results
-            if instance.SOPClassUID == ParametricMapStorage
-        ]
-        logger.debug(
-            f'found n={len(pm_image_instance_search_results)} '
-            'parametric map image instances '
-            f'for study "{study.StudyInstanceUID}"'
-        )
-        instance_search_results.extend(pm_image_instance_search_results)
-        logger.debug(
-            f'found n={len(instance_search_results)} image instances '
-            f'for study "{study.StudyInstanceUID}"'
-        )
+            instance_search_results.extend(pm_image_instance_search_results)
+            logger.debug(
+                f'found n={len(instance_search_results)} image instances '
+                f'for study "{study.StudyInstanceUID}"'
+            )
 
         logger.debug('filter image instances based on metadata')
         for instance in instance_search_results:
