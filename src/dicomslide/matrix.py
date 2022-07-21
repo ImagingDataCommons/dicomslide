@@ -181,11 +181,17 @@ class TotalPixelMatrix:
             Whether pixel values should be color corrected
 
         """
+        sop_instance_uid = image_metadata.SOPInstanceUID
+        logger.debug(
+            f'construct TotalPixelMatrix for channel {channel_index} '
+            f'and focal plane {focal_plane_index} of image "{sop_instance_uid}"'
+        )
         self._client = client
         self._metadata = image_metadata
         if not is_tiled_image(image_metadata):
             raise ValueError('Image is not tiled.')
 
+        logger.debug('build tile grid')
         self._n = int(getattr(image_metadata, 'NumberOfFrames', '1'))
         self._rows = int(image_metadata.Rows)
         self._cols = int(image_metadata.Columns)
@@ -727,6 +733,11 @@ class TotalPixelMatrix:
             )
 
         frame_indices = [key for key in frame_position_mapping.keys()]
+        logger.debug(f'retrieve frames {frame_indices}')
+        if len(frame_indices) > 50:
+            logger.warning(
+                f'n={len(frame_indices)} frames will be retrieved'
+            )
         frame_array_mapping = self._retrieve_and_decode_frames(frame_indices)
         tiles = [frame_array_mapping[i] for i in frame_indices]
         tile_positions: np.typing.NDArray[np.uint32] = np.array([
@@ -806,10 +817,12 @@ class TotalPixelMatrix:
                         ])
                     else:
                         adjusted_region_row_stop = region_row_stop
+                    region_row_diff = (
+                        adjusted_region_row_stop - region_row_start
+                    )
+                    shape.append(max([0, region_row_diff]))
                 else:
-                    adjusted_region_row_stop = region_row_stop
-                region_row_diff = adjusted_region_row_stop - region_row_start
-                shape.append(max([0, region_row_diff]))
+                    shape.append(0)
 
             if len(col_tile_range) == 0:
                 shape.append(0)
@@ -822,10 +835,12 @@ class TotalPixelMatrix:
                         ])
                     else:
                         adjusted_region_col_stop = region_col_stop
+                    region_col_diff = (
+                        adjusted_region_col_stop - region_col_start
+                    )
+                    shape.append(max([0, region_col_diff]))
                 else:
-                    adjusted_region_col_stop = region_col_stop
-                region_col_diff = adjusted_region_col_stop - region_col_start
-                shape.append(max([0, region_col_diff]))
+                    shape.append(0)
 
             if sample_stop < 0:
                 adjusted_sample_stop = np.sum([

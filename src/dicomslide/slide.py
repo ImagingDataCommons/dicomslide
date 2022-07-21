@@ -28,6 +28,9 @@ from dicomslide.enum import ChannelTypes
 from dicomslide.image import TiledImage
 from dicomslide.pyramid import get_image_size, Pyramid
 from dicomslide.utils import (
+    does_optical_path_item_match,
+    does_segment_item_match,
+    does_specimen_description_item_match,
     _encode_dataset,
     is_volume_image,
     is_label_image,
@@ -92,7 +95,14 @@ class Slide:
             raise TypeError('Argument "image_metadata" must be a sequence.')
         if len(image_metadata) == 0:
             raise ValueError('Argument "image_metadata" cannot be empty.')
+
+        logger.debug(f'construct Slide for n={len(image_metadata)} images')
         ref_image = image_metadata[0]
+        volume_images_lut: Dict[
+            Tuple[ChannelTypes, str, float], List[TiledImage]
+        ] = defaultdict(list)
+        label_images = []
+        overview_images = []
         for i, metadata in enumerate(image_metadata):
             if not isinstance(metadata, Dataset):
                 raise TypeError(
@@ -111,13 +121,6 @@ class Slide:
                     'VL Whole Slide Microscopy Image instance with the same '
                     'Container Identifier.'
                 )
-
-        volume_images_lut: Dict[
-            Tuple[ChannelTypes, str, float], List[TiledImage]
-        ] = defaultdict(list)
-        label_images = []
-        overview_images = []
-        for metadata in image_metadata:
             image = TiledImage(
                 client=client,
                 image_metadata=metadata,
@@ -155,6 +158,7 @@ class Slide:
         self._overview_images = tuple(overview_images)
         self._volume_images: Dict[Tuple[int, int], Tuple[TiledImage, ...]] = {}
 
+        logger.debug('assign images to channels')
         unique_channel_identifiers = defaultdict(set)
         unique_focal_plane_offsets = set()
         for key in volume_images_lut.keys():
@@ -220,6 +224,7 @@ class Slide:
             for image in self.overview_images + self.label_images
         ])
 
+        logger.debug('build pyramids for each channel')
         pyramids: Dict[Tuple[int, int], Pyramid] = {}
         for (
             channel_index,
@@ -297,32 +302,6 @@ class Slide:
             or THUMBNAIL images.
 
         """
-        def does_segment_match(
-            item: Dataset,
-            number: Optional[int] = None,
-            label: Optional[str] = None,
-            property_category: Optional[Union[hd.sr.CodedConcept, Code]] = None,
-            property_type: Optional[Union[hd.sr.CodedConcept, Code]] = None,
-        ) -> bool:
-            matches = []
-            if number is not None:
-                matches.append(item.SegmentNumber == number)
-            if label is not None:
-                matches.append(item.SegmentLabel == label)
-            if property_category is not None:
-                code_item = hd.sr.CodedConcept.from_dataset(
-                    item.SegmentedPropertyCategoryCodeSequence[0]
-                )
-                matches.append(code_item == property_category)
-            if property_type is not None:
-                code_item = hd.sr.CodedConcept.from_dataset(
-                    item.SegmentedPropertyTypeCodeSequence[0]
-                )
-                matches.append(code_item == property_type)
-            if len(matches) == 0:
-                return True
-            return any(matches)
-
         matching_channel_indices = set()
         for (channel_index, _), images in self._volume_images.items():
             ref_image = images[0]
@@ -339,7 +318,7 @@ class Slide:
                 if channel_identifier == str(item.SegmentNumber)
             ]
             segment_item = matching_segment_items[0]
-            if does_segment_match(
+            if does_segment_item_match(
                 segment_item,
                 number,
                 label,
@@ -378,55 +357,6 @@ class Slide:
             or THUMBNAIL images.
 
         """
-        def does_optical_path_match(
-            item: Dataset,
-            identifier: Optional[str] = None,
-            description: Optional[str] = None,
-            illumination_wavelength: Optional[float] = None,
-        ) -> bool:
-            matches = []
-            if identifier is not None:
-                matches.append(item.OpticalPathIdentifier == identifier)
-            if description is not None:
-                if hasattr(item, 'OpticalPathDescription'):
-                    matches.append(item.OpticalPathDescription == description)
-                else:
-                    matches.append(False)
-            if illumination_wavelength is not None:
-                if hasattr(item, 'IlluminationWaveLength'):
-                    matches.append(
-                        item.IlluminationWaveLength == illumination_wavelength
-                    )
-                else:
-                    matches.append(False)
-            if len(matches) == 0:
-                return True
-            return any(matches)
-
-        def does_specimen_match(
-            item: Dataset,
-            specimen_stain: Optional[Union[hd.sr.CodedConcept, Code]] = None
-        ) -> bool:
-            matches = []
-            if specimen_stain is not None:
-                description = hd.SpecimenDescription.from_dataset(item)
-                is_specimen_staining_described = False
-                for step in description.specimen_preparation_steps:
-                    procedure = step.processing_procedure
-                    if isinstance(procedure, hd.SpecimenStaining):
-                        is_specimen_staining_described = True
-                        substances = [
-                            item
-                            for item in procedure.substances
-                            if isinstance(item, hd.sr.CodedConcept)
-                        ]
-                        matches.append(specimen_stain in substances)
-                if not is_specimen_staining_described:
-                    matches.append(False)
-            if len(matches) == 0:
-                return True
-            return any(matches)
-
         matching_channel_indices = set()
         for (channel_index, _), images in self._volume_images.items():
             ref_image = images[0]
@@ -449,13 +379,13 @@ class Slide:
                 .SpecimenDescriptionSequence[0]
             )
             if all([
-                does_optical_path_match(
+                does_optical_path_item_match(
                     optical_path_item,
                     identifier,
                     description,
                     illumination_wavelength
                 ),
-                does_specimen_match(
+                does_specimen_description_item_match(
                     specimen_description_item,
                     specimen_stain
                 )

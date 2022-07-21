@@ -1,3 +1,4 @@
+import logging
 from typing import Sequence, Tuple, Union
 
 import highdicom as hd
@@ -6,6 +7,9 @@ from pydicom.dataset import Dataset
 
 from dicomslide._channel import _get_channel_info
 from dicomslide.utils import is_tiled_image
+
+
+logger = logging.getLogger(__name__)
 
 
 def disassemble_total_pixel_matrix(
@@ -33,6 +37,7 @@ def disassemble_total_pixel_matrix(
         Stacked image tiles
 
     """
+    logger.debug('disassemble total pixel matrix')
     tiles = []
     tile_shape: Tuple[int, ...]
     if total_pixel_matrix.ndim == 3:
@@ -84,6 +89,7 @@ def assemble_total_pixel_matrix(
         Total pixel matrix
 
     """
+    logger.debug('assemble total pixel matrix')
     if tiles[0].ndim == 3:
         rows, columns = tiles[0].shape[-3:-1]
         total_pixel_matrix = np.zeros(
@@ -167,6 +173,10 @@ def compute_frame_positions(
     if not is_tiled_image(image):
         raise ValueError('Argument "image" is not a a tiled image.')
 
+    sop_instance_uid = image.SOPInstanceUID
+    logger.debug(
+        f'compute frame positions for image "{sop_instance_uid}"'
+    )
     channels, get_channel_identifier = _get_channel_info(image)
     channel_identifier_lut = {
         str(ch.channel_identifier): i

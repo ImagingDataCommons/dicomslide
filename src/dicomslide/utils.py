@@ -1,7 +1,10 @@
 from io import BytesIO
+from typing import Optional, Union
 
+import highdicom as hd
 from pydicom.dataset import Dataset
 from pydicom.filewriter import dcmwrite
+from pydicom.sr.coding import Code
 
 from dicomslide.enum import ImageFlavors
 
@@ -147,3 +150,136 @@ def _encode_dataset(dataset: Dataset) -> bytes:
         dcmwrite(fp, clone, write_like_original=True)
         encoded_value = fp.getvalue()
     return encoded_value
+
+
+def does_optical_path_item_match(
+    item: Dataset,
+    identifier: Optional[str] = None,
+    description: Optional[str] = None,
+    illumination_wavelength: Optional[float] = None,
+) -> bool:
+    """Check whether an optical path item matches.
+
+    Parameters
+    ----------
+    item: pydicom.Dataset
+        Item of the Optical Path Sequence
+    identifier: Union[str, None], optional
+        Optical path identifier
+    description: Union[str, None], optional
+        Optical path description
+    illumination_wavelength: Union[float, None], optional
+        Illumination wave length
+
+    Returns
+    -------
+    bool
+        Whether item matches
+
+    """  # noqa: E501
+    matches = []
+    if identifier is not None:
+        matches.append(item.OpticalPathIdentifier == identifier)
+    if description is not None:
+        if hasattr(item, 'OpticalPathDescription'):
+            matches.append(item.OpticalPathDescription == description)
+        else:
+            matches.append(False)
+    if illumination_wavelength is not None:
+        if hasattr(item, 'IlluminationWaveLength'):
+            matches.append(
+                item.IlluminationWaveLength == illumination_wavelength
+            )
+        else:
+            matches.append(False)
+    if len(matches) == 0:
+        return True
+    return any(matches)
+
+
+def does_specimen_description_item_match(
+    item: Dataset,
+    specimen_stain: Optional[Union[hd.sr.CodedConcept, Code]] = None
+) -> bool:
+    """Check whether a specimen description item matches.
+
+    Parameters
+    ----------
+    item: pydicom.Dataset
+        Item of the Specimen Description Sequence
+    specimen_stain: Union[pydicom.sr.coding.Code, highdicom.sr.CodedConcept, None], optional
+        Specimen stain substance
+
+    Returns
+    -------
+    bool
+        Whether item matches
+
+    """  # noqa: E501
+    matches = []
+    if specimen_stain is not None:
+        description = hd.SpecimenDescription.from_dataset(item)
+        is_specimen_staining_described = False
+        for step in description.specimen_preparation_steps:
+            procedure = step.processing_procedure
+            if isinstance(procedure, hd.SpecimenStaining):
+                is_specimen_staining_described = True
+                substances = [
+                    item
+                    for item in procedure.substances
+                    if isinstance(item, hd.sr.CodedConcept)
+                ]
+                matches.append(specimen_stain in substances)
+        if not is_specimen_staining_described:
+            matches.append(False)
+    if len(matches) == 0:
+        return True
+    return any(matches)
+
+
+def does_segment_item_match(
+    item: Dataset,
+    number: Optional[int] = None,
+    label: Optional[str] = None,
+    property_category: Optional[Union[hd.sr.CodedConcept, Code]] = None,
+    property_type: Optional[Union[hd.sr.CodedConcept, Code]] = None,
+) -> bool:
+    """Check whether a segment item matches.
+
+    Parameters
+    ----------
+    item: pydicom.Dataset
+        Item of the Segment Sequence
+    number: Union[int, None], optional
+        Segment number
+    label: Union[int, None], optional
+        Segment label
+    property_category: Union[pydicom.sr.coding.Code, highdicom.sr.CodedConcept, None], optional
+        Segmented property category
+    property_type: Union[pydicom.sr.coding.Code, highdicom.sr.CodedConcept, None], optional
+        Segmented property type
+
+    Returns
+    -------
+    bool
+        Whether item matches
+
+    """  # noqa: E501
+    matches = []
+    if number is not None:
+        matches.append(item.SegmentNumber == number)
+    if label is not None:
+        matches.append(item.SegmentLabel == label)
+    if property_category is not None:
+        code_item = hd.sr.CodedConcept.from_dataset(
+            item.SegmentedPropertyCategoryCodeSequence[0]
+        )
+        matches.append(code_item == property_category)
+    if property_type is not None:
+        code_item = hd.sr.CodedConcept.from_dataset(
+            item.SegmentedPropertyTypeCodeSequence[0]
+        )
+        matches.append(code_item == property_type)
+    if len(matches) == 0:
+        return True
+    return any(matches)

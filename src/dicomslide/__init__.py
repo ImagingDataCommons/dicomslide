@@ -18,6 +18,16 @@ from dicomslide.tile import (
     compute_frame_positions,
     disassemble_total_pixel_matrix,
 )
+from dicomslide.utils import (
+    does_optical_path_item_match,
+    does_segment_item_match,
+    does_specimen_description_item_match,
+    is_image,
+    is_label_image,
+    is_overview_image,
+    is_tiled_image,
+    is_volume_image,
+)
 from dicomslide.version import __version__
 
 
@@ -27,10 +37,18 @@ __all__ = [
     'compute_frame_positions',
     'compute_image_center_position',
     'disassemble_total_pixel_matrix',
+    'does_optical_path_item_match',
+    'does_segment_item_match',
+    'does_specimen_description_item_match',
     'find_slides',
     'get_image_pixel_spacing',
     'get_image_size',
     'ImageFlavors',
+    'is_image',
+    'is_label_image',
+    'is_overview_image',
+    'is_tiled_image',
+    'is_volume_image',
     'OpenSlide',
     'Pyramid',
     'PyramidLevel',
