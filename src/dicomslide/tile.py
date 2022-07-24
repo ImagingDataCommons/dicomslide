@@ -269,24 +269,24 @@ def compute_frame_positions(
         # when compared to a for loop.
         positions = np.stack([
             np.concatenate([
-                np.array([i], dtype=float),
+                np.array([channel_index - 1], dtype=float),
                 np.array(
                     [(r - 1) * rows, (c - 1) * columns],
                     dtype=float
                 ),
-                transformer_lut[s](
+                transformer_lut[slice_index](
                     np.array(
-                        [[(r - 1) * rows, (c - 1) * columns]],
+                        [[(c - 1) * columns, (r - 1) * rows]],
                         dtype=int
                     )
                 )[0]
             ])
-            for i, (_, s, r, c) in enumerate(itertools.product(
-                range(num_optical_paths),
+            for channel_index, slice_index, r, c in itertools.product(
+                range(1, num_optical_paths + 1),
                 range(1, num_focal_planes + 1),
                 range(1, tiles_per_column + 1),
                 range(1, tiles_per_row + 1),
-            ))
+            )
         ])
 
     channel_indices = positions[:, 0].astype(int)
