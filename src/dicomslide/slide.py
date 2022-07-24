@@ -221,7 +221,7 @@ class Slide:
                 ])
         encoded_image_metadata.extend([
             _encode_dataset(image.metadata)
-            for image in self.overview_images + self.label_images
+            for image in overview_images + label_images
         ])
 
         logger.debug('build pyramids for each channel')
