@@ -1196,7 +1196,8 @@ def find_slides(
     max_frame_cache_size: int = 6,
     pyramid_tolerance: float = 0.1,
     fail_on_error: bool = True,
-    include_derived: bool = True
+    include_derived: bool = True,
+    specimen_stains: Optional[Sequence[Union[Code, hd.sr.CodedConcept]]] = None
 ) -> List[Slide]:
     """Find slides.
 
@@ -1225,6 +1226,9 @@ def find_slides(
     include_derived: bool, optional
         Whether derived images (DICOM Segmentation or DICOM Parametric Map
         instances) should be considered and included into slides
+    specimen_stains: Union[Sequence[Union[pydicom.sr.Code, highdicom.sr.CodedConcept]], None]
+        Specimen stains for which corresponding slide microscopy images should
+        be included in slides
 
     Returns
     -------
@@ -1352,6 +1356,22 @@ def find_slides(
                 ),
                 bulk_data_uri_handler=bulk_data_uri_handler
             )
+            if specimen_stains is not None:
+                if instance.SOPClassUID == VLWholeSlideMicroscopyImageStorage:
+                    does_match = False
+                    for stain in specimen_stains:
+                        for item in metadata.SpecimenDescriptionSequence:
+                            does_match |= does_specimen_description_item_match(
+                                item=item,
+                                specimen_stain=stain
+                            )
+                    if not does_match:
+                        logger.debug(
+                            f'skip image "{metadata.SOPInstanceUID}" because '
+                            'its specimen description does not match any of '
+                            'the specified specimen stains'
+                        )
+                        continue
 
             # These checks should not be necessary, because we are using these
             # attributes to search for studies in the first place. However,
