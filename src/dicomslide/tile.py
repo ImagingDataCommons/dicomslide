@@ -1,4 +1,5 @@
 import logging
+import itertools
 from typing import Sequence, Tuple, Union
 
 import highdicom as hd
@@ -185,56 +186,118 @@ def compute_frame_positions(
     num_channels = len(channels)
 
     num_frames = int(getattr(image, 'NumberOfFrames', '1'))
-    focal_plane_indices = np.zeros((num_frames, ), dtype=int)
-    matrix_positions = np.zeros((num_frames, 2), dtype=int)
-    slide_positions = np.zeros((num_frames, 3), dtype=float)
     if hasattr(image, 'PerFrameFunctionalGroupsSequence'):
-        channel_indices = np.zeros((num_frames, ), dtype=int)
-        for i in range(num_frames):
-            frame_item = image.PerFrameFunctionalGroupsSequence[i]
-            try:
-                plane_pos_item = frame_item.PlanePositionSlideSequence[0]
-            except AttributeError as error:
-                raise AttributeError(
-                    f'Item #{i + 1} of Per-Frame Functional Groups Sequence '
-                    'does not have attribute Plane Position Slide Sequence: '
-                    f'{error}'
-                )
-            matrix_positions[i, :] = (
-                int(plane_pos_item.RowPositionInTotalImagePixelMatrix) - 1,
-                int(plane_pos_item.ColumnPositionInTotalImagePixelMatrix) - 1,
+        positions = np.stack([
+            np.array(
+                [
+                    float(
+                        channel_identifier_lut[
+                            get_channel_identifier(frame_item)
+                        ]
+                    ),
+                    float(pos_item.RowPositionInTotalImagePixelMatrix) - 1.0,
+                    float(pos_item.ColumnPositionInTotalImagePixelMatrix) - 1.0,
+                    float(pos_item.XOffsetInSlideCoordinateSystem),
+                    float(pos_item.YOffsetInSlideCoordinateSystem),
+                    float(pos_item.ZOffsetInSlideCoordinateSystem),
+                ]
             )
-            slide_positions[i, :] = (
-                float(plane_pos_item.XOffsetInSlideCoordinateSystem),
-                float(plane_pos_item.YOffsetInSlideCoordinateSystem),
-                float(plane_pos_item.ZOffsetInSlideCoordinateSystem),
-            )
-            channel_indices[i] = channel_identifier_lut[
-                get_channel_identifier(frame_item)
-            ]
+            for frame_item in image.PerFrameFunctionalGroupsSequence
+            for pos_item in frame_item.PlanePositionSlideSequence
+        ])
     else:
+        image_origin = image.TotalPixelMatrixOriginSequence[0]
+        image_orientation = (
+            float(image.ImageOrientationSlide[0]),
+            float(image.ImageOrientationSlide[1]),
+            float(image.ImageOrientationSlide[2]),
+            float(image.ImageOrientationSlide[3]),
+            float(image.ImageOrientationSlide[4]),
+            float(image.ImageOrientationSlide[5]),
+        )
+        tiles_per_column = int(
+            np.ceil(image.TotalPixelMatrixRows / image.Rows)
+        )
+        tiles_per_row = int(
+            np.ceil(image.TotalPixelMatrixColumns / image.Columns)
+        )
+        num_focal_planes = getattr(
+            image,
+            'TotalPixelMatrixFocalPlanes',
+            1
+        )
+        num_optical_paths = getattr(
+            image,
+            'NumberOfOpticalPaths',
+            len(image.OpticalPathSequence)
+        )
+
+        shared_fg = image.SharedFunctionalGroupsSequence[0]
+        pixel_measures = shared_fg.PixelMeasuresSequence[0]
+        pixel_spacing = (
+            float(pixel_measures.PixelSpacing[0]),
+            float(pixel_measures.PixelSpacing[1]),
+        )
+        spacing_between_slices = float(
+            getattr(
+                pixel_measures,
+                'SpacingBetweenSlices',
+                1.0
+            )
+        )
+        x_offset = float(image_origin.XOffsetInSlideCoordinateSystem)
+        y_offset = float(image_origin.YOffsetInSlideCoordinateSystem)
+
+        transformer_lut = {}
+        for s in range(1, num_focal_planes + 1):
+            # These checks are needed for mypy to determine the correct type
+            z_offset = float(s - 1) * spacing_between_slices
+            transformer_lut[s] = hd.spatial.PixelToReferenceTransformer(
+                image_position=(x_offset, y_offset, z_offset),
+                image_orientation=image_orientation,
+                pixel_spacing=pixel_spacing
+            )
+
+        rows = int(image.Rows)
+        columns = int(image.Columns)
         channel_indices = np.repeat(
             np.arange(num_channels),
             repeats=int(num_frames / num_channels)
         )
-        plane_positions = hd.utils.compute_plane_position_slide_per_frame(image)
-        for i in range(num_frames):
-            plane_pos_item = plane_positions[i][0]
-            matrix_positions[i, :] = (
-                int(plane_pos_item.RowPositionInTotalImagePixelMatrix) - 1,
-                int(plane_pos_item.ColumnPositionInTotalImagePixelMatrix) - 1,
-            )
-            slide_positions[i, :] = (
-                float(plane_pos_item.XOffsetInSlideCoordinateSystem),
-                float(plane_pos_item.YOffsetInSlideCoordinateSystem),
-                float(plane_pos_item.ZOffsetInSlideCoordinateSystem),
-            )
 
+        # This is ugly, but the list comprehensive speeds up the computation
+        # when compared to a for loop.
+        positions = np.stack([
+            np.concatenate([
+                np.array([i], dtype=float),
+                np.array(
+                    [(r - 1) * rows, (c - 1) * columns],
+                    dtype=float
+                ),
+                transformer_lut[s](
+                    np.array(
+                        [[(r - 1) * rows, (c - 1) * columns]],
+                        dtype=int
+                    )
+                )[0]
+            ])
+            for i, (_, s, r, c) in enumerate(itertools.product(
+                range(num_optical_paths),
+                range(1, num_focal_planes + 1),
+                range(1, tiles_per_column + 1),
+                range(1, tiles_per_row + 1),
+            ))
+        ])
+
+    channel_indices = positions[:, 0].astype(int)
+    matrix_positions = positions[:, 1:3].astype(int)
+    slide_positions = positions[:, 3:].astype(float)
+
+    focal_plane_indices = np.zeros((num_frames, ), dtype=int)
     z_offset_values = slide_positions[:, 2]
     unique_z_offset_values = np.unique(z_offset_values)
     for index, value in enumerate(unique_z_offset_values):
-        matches = z_offset_values == value
-        focal_plane_indices[matches] = index
+        focal_plane_indices[z_offset_values == value] = index
 
     if hasattr(image, 'TotalPixelMatrixFocalPlanes'):
         num_focal_planes = image.TotalPixelMatrixFocalPlanes
