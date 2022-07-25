@@ -133,6 +133,8 @@ class Slide:
                 )
                 for channel_index, focal_plane_index in iterator:
                     channel_type = image.channel_type
+                    # FIXME: Segment Number may not be unique across
+                    # Segmentation series/instances.
                     channel_identifier = image.get_channel_identifier(
                         channel_index
                     )
@@ -230,6 +232,13 @@ class Slide:
             channel_index,
             focal_plane_index,
         ), image_collection in self._volume_images.items():
+            if len(ref_image_metadata) > 0:
+                ref_metadata = [
+                    image.metadata
+                    for image in ref_image_metadata
+                ]
+            else:
+                ref_metadata = None
             try:
                 pyramids[(channel_index, focal_plane_index)] = Pyramid(
                     metadata=[
@@ -237,10 +246,7 @@ class Slide:
                         for image in image_collection
                     ],
                     tolerance=pyramid_tolerance,
-                    ref_metadata=[
-                        image.metadata
-                        for image in ref_image_metadata
-                    ]
+                    ref_metadata=ref_metadata
                 )
             except ValueError as error:
                 raise ValueError(

@@ -319,6 +319,24 @@ class PyramidLevel(NamedTuple):
             ),
         ])
 
+    def __contains__(self, other: object) -> bool:
+        if not isinstance(other, self.__class__):
+            return False
+        return all([
+            eq(
+                self.total_pixel_matrix_dimensions,
+                other.total_pixel_matrix_dimensions
+            ),
+            eq(
+                self.pixel_spacing,
+                other.pixel_spacing
+            ),
+            eq(
+                self.downsampling_factors,
+                other.downsampling_factors
+            ),
+        ])
+
 
 class Pyramid:
 
@@ -547,7 +565,7 @@ class Pyramid:
                 other_level = item[i]
             except IndexError:
                 return False
-            if level != other_level:
+            if level not in other_level:
                 return False
         return True
 
@@ -562,23 +580,6 @@ class Pyramid:
                 other_level = other[i]
             except IndexError:
                 return False
-            if not all([
-                eq(
-                    level.total_pixel_matrix_dimensions,
-                    other_level.total_pixel_matrix_dimensions
-                ),
-                eq(
-                    level.pixel_spacing,
-                    other_level.pixel_spacing
-                ),
-                eq(
-                    level.downsampling_factors,
-                    other_level.downsampling_factors
-                ),
-                eq(
-                    level.has_pixels,
-                    other_level.has_pixels
-                ),
-            ]):
+            if level != other_level:
                 return False
         return True
