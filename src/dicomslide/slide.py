@@ -134,7 +134,8 @@ class Slide:
                 for channel_index, focal_plane_index in iterator:
                     channel_type = image.channel_type
                     # FIXME: Segment Number may not be unique across
-                    # Segmentation series/instances.
+                    # Segmentation series/instances and would currently
+                    # result in several images.
                     channel_identifier = image.get_channel_identifier(
                         channel_index
                     )
@@ -1203,7 +1204,8 @@ def find_slides(
     pyramid_tolerance: float = 0.1,
     fail_on_error: bool = True,
     include_derived: bool = True,
-    specimen_stains: Optional[Sequence[Union[Code, hd.sr.CodedConcept]]] = None
+    specimen_stains: Optional[Sequence[Union[Code, hd.sr.CodedConcept]]] = None,
+    optical_path_ids: Optional[Sequence[str]] = None
 ) -> List[Slide]:
     """Find slides.
 
@@ -1234,7 +1236,12 @@ def find_slides(
         instances) should be considered and included into slides
     specimen_stains: Union[Sequence[Union[pydicom.sr.Code, highdicom.sr.CodedConcept]], None]
         Specimen stains for which corresponding slide microscopy images should
-        be included in slides
+        be included in slides. Any image that does not contain one of the
+        stains in the speciment description will be omitted.
+    optical_path_ids: Union[Sequence[str], None]
+        Identifiers of optical paths for which corresponding slide microscopy
+        images should be included in slides. Any image that does not contain
+        any of the specified optical paths will be omitted.
 
     Returns
     -------
@@ -1376,6 +1383,22 @@ def find_slides(
                             f'skip image "{metadata.SOPInstanceUID}" because '
                             'its specimen description does not match any of '
                             'the specified specimen stains'
+                        )
+                        continue
+            if optical_path_ids is not None:
+                if instance.SOPClassUID == VLWholeSlideMicroscopyImageStorage:
+                    does_match = False
+                    for identifier in optical_path_ids:
+                        for item in metadata.OpticalPathSequence:
+                            does_match |= does_optical_path_item_match(
+                                item=item,
+                                identifier=identifier
+                            )
+                    if not does_match:
+                        logger.debug(
+                            f'skip image "{metadata.SOPInstanceUID}" because '
+                            'its optical path does not match any of '
+                            'the specified optical path identitiers'
                         )
                         continue
 
