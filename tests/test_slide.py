@@ -1,4 +1,5 @@
 import collections
+import uuid
 from typing import List, Mapping, Tuple
 
 import highdicom as hd
@@ -25,14 +26,16 @@ def generate_test_images(
     transfer_syntax_uid: str,
     dimension_organization_type: hd.DimensionOrganizationTypeValues
 ) -> Mapping[Tuple[str, str], List[VLWholeSlideMicroscopyImage]]:
+    num_studies = 4
+    num_series_per_study = 2
     lut = collections.defaultdict(list)
-    for _ in range(4):
+    for _ in range(num_studies):
         study_instance_uid = hd.UID()
-        for i in range(2):
+        for i in range(num_series_per_study):
             series_instance_uid = hd.UID()
             frame_of_reference_uid = hd.UID()
-            container_id = str(np.random.choice(range(100)))
-            specimen_id = str(np.random.choice(range(100)))
+            container_id = str(uuid.uuid4())
+            specimen_id = str(uuid.uuid4())
             specimen_uid = hd.UID()
             optical_path_identifiers = [
                 str(i + 1) for i in range(number_of_optical_paths)
@@ -428,8 +431,34 @@ def test_grayscale_images(client):
     for datasets in groups.values():
         client.store_instances(datasets)
 
+    group_keys = list(groups.keys())
+
+    found_slides = find_slides(
+        client,
+        study_instance_uid=group_keys[0][0]
+    )
+    assert len(found_slides) == 2
+    assert found_slides[0].num_channels == expected_num_optical_paths
+
+    found_slides = find_slides(
+        client,
+        study_instance_uid=group_keys[0][0],
+        container_id=group_keys[0][1]
+    )
+    assert len(found_slides) == 1
+    assert found_slides[0].num_channels == expected_num_optical_paths
+
+    found_slides = find_slides(
+        client,
+        study_instance_uid=group_keys[0][0],
+        container_id=group_keys[2][1]
+    )
+    assert len(found_slides) == 0
+
     found_slides = find_slides(client)
     assert len(found_slides) == len(groups)
+    for i in range(len(groups)):
+        assert found_slides[i].num_channels == expected_num_optical_paths
 
     expected_num_levels = 4
     expected_downsampling_factors = (1.0, 2.0, 4.0, 8.0)
