@@ -483,7 +483,9 @@ class Pyramid:
                 ref_pyramid_level = level_lut[key]
             except KeyError:
                 raise ValueError(
-                    'Pyramid level does not match any reference level.'
+                    f'Pyramid level #{i} does not match any level in the '
+                    'reference pyramid. The reference pyramid has no level '
+                    f'with total pixel matrix dimensions {key}.'
                 )
             pyramid_level = PyramidLevel(
                 total_pixel_matrix_dimensions,
@@ -503,7 +505,13 @@ class Pyramid:
             ]):
                 raise ValueError(
                     f'Pyramid level #{i} does not match corresponding level '
-                    'of reference pyramid.'
+                    'of reference pyramid. '
+                    'Downsampling factors: '
+                    f'{pyramid_level.downsampling_factors} versus '
+                    f'{ref_pyramid_level.downsampling_factors}. '
+                    'Pixel spacing: '
+                    f'{pyramid_level.pixel_spacing} versus '
+                    f'{ref_pyramid_level.pixel_spacing}.'
                 )
             level_lut[key] = pyramid_level
 

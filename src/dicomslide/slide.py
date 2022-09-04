@@ -253,7 +253,8 @@ class Slide:
                 raise ValueError(
                     f'VOLUME and THUMBNAIL images for channel {channel_index} '
                     f'and focal plane {focal_plane_index} do not represent '
-                    f'a valid image pyramid: {error}'
+                    'a valid image pyramid. '
+                    f'{error}'
                 )
 
         # For now, pyramids must be identical across channels and focal planes.
