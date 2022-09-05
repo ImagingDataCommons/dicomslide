@@ -1,6 +1,6 @@
 import logging
 import itertools
-from typing import Sequence, Tuple, Union
+from typing import List, Sequence, Tuple, Union
 
 import highdicom as hd
 import numpy as np
@@ -39,7 +39,6 @@ def disassemble_total_pixel_matrix(
 
     """
     logger.debug('disassemble total pixel matrix')
-    tiles = []
     tile_shape: Tuple[int, ...]
     if total_pixel_matrix.ndim == 3:
         tile_shape = (rows, columns, total_pixel_matrix.shape[-1])
@@ -49,20 +48,24 @@ def disassemble_total_pixel_matrix(
         raise ValueError(
             "Total pixel matrix has unexpected number of dimensions."
         )
-    for row_offset, col_offset in tile_positions:
-        tile = np.zeros(tile_shape, dtype=total_pixel_matrix.dtype)
+    tiles = np.zeros(
+        (len(tile_positions), *tile_shape),
+        dtype=total_pixel_matrix.dtype
+    )
+    for i, (row_offset, col_offset) in enumerate(tile_positions):
         pixel_array = total_pixel_matrix[
             row_offset:(row_offset + rows),
             col_offset:(col_offset + columns),
             ...,
         ]
-        tile[
+        tiles[
+            i,
             0:pixel_array.shape[0],
             0:pixel_array.shape[1],
             ...
-        ] = pixel_array
-        tiles.append(tile)
-    return np.stack(tiles)
+        ] = pixel_array.copy()
+        del pixel_array
+    return tiles
 
 
 def assemble_total_pixel_matrix(
