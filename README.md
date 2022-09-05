@@ -1,4 +1,6 @@
 [![Build Status](https://github.com/herrmannlab/dicomslide/actions/workflows/run_unit_tests.yml/badge.svg)](https://github.com/herrmannlab/dicomslide/actions)
+[![PyPi Distribution](https://img.shields.io/pypi/v/dicomslide.svg)](https://pypi.python.org/pypi/dicomslide/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/dicomslide.svg)](https://pypi.org/project/dicomslide/)
 
 # dicomslide
 
