@@ -1,6 +1,6 @@
 import logging
 import itertools
-from typing import List, Sequence, Tuple, Union
+from typing import Sequence, Tuple, Union
 
 import highdicom as hd
 import numpy as np
