@@ -14,7 +14,7 @@ Use `dicomweb_client.DICOMfileClient <https://dicomweb-client.readthedocs.io/en/
 
     import dicomweb_client
 
-    client = dicomweb_client.DICOMfileClient(base_dir='/tmp/images')
+    client = dicomweb_client.DICOMfileClient(url='file:///tmp/images')
 
 Use `dicomweb_client.DICOMwebClient <https://dicomweb-client.readthedocs.io/en/latest/package.html#dicomweb_client.api.DICOMwebClient>`_ to read whole slide images over network using DICOMweb services:
 
