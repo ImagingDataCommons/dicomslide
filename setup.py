@@ -52,6 +52,8 @@ setuptools.setup(
     install_requires=[
         'dicomweb_client>=0.56.2',
         'highdicom>=0.16.0',
+        'numpy>=1.19',
+        'pydicom>=2.3.0',
         'scipy>=1.0',
     ],
 )
