@@ -1,3 +1,5 @@
+import itertools
+
 import highdicom as hd
 import numpy as np
 from pydicom.uid import JPEGBaseline8Bit, JPEG2000Lossless
@@ -70,9 +72,51 @@ def test_color(client):
         image.Columns,
         image.SamplesPerPixel,
     )
-    assert matrix.tile_grid_shape == (
-        int(np.ceil(image.TotalPixelMatrixRows / image.Rows)),
-        int(np.ceil(image.TotalPixelMatrixColumns / image.Columns)),
+    num_tiles_per_col = int(
+        np.ceil(image.TotalPixelMatrixRows / image.Rows)
+    )
+    num_tiles_per_row = int(
+        np.ceil(image.TotalPixelMatrixColumns / image.Columns)
+    )
+    assert matrix.tile_grid_shape == (num_tiles_per_col, num_tiles_per_row)
+    tile_grid_positions = np.array([
+        (r, c)
+        for r, c in itertools.product(
+            range(num_tiles_per_col),
+            range(num_tiles_per_row)
+        )
+    ])
+    assert np.array_equal(matrix.tile_grid_positions, tile_grid_positions)
+    for i, (r, c) in enumerate(tile_grid_positions):
+        assert matrix.get_tile_grid_position(i) == (r, c)
+
+    array = matrix[0]
+    assert array.ndim == 3
+    assert array.dtype == np.dtype('uint8')
+    assert array.shape == (
+        image.Rows,
+        image.Columns,
+        image.SamplesPerPixel,
+    )
+
+    array = matrix[[0, 1, 2, 3, 4]]
+    assert array.ndim == 4
+    assert array.dtype == np.dtype('uint8')
+    assert array.shape == (
+        5,
+        image.Rows,
+        image.Columns,
+        image.SamplesPerPixel,
+    )
+
+    array = matrix[[0, np.int64(1), np.int32(2)]]
+    assert array.ndim == 4
+    assert array.dtype == np.dtype('uint8')
+    assert array.shape == (
+        3,
+        image.Rows,
+        image.Columns,
+        image.SamplesPerPixel,
     )
 
     array = matrix[:, :, :]

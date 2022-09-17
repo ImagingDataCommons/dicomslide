@@ -124,9 +124,9 @@ class TotalPixelMatrix:
 
     The caller can index instances of the class either using one-dimensional
     tile indices into the flattened list of tiles in the total pixel matrix to
-    get individual tiles or three-dimensional pixel indices (rows, columns, and
-    samples) into the total pixel matrix to get a continous region spanning one
-    or more tiles.
+    get one or more individual tiles or using three-dimensional pixel indices
+    (rows, columns, and samples) into the total pixel matrix to get a continous
+    region of pixels spanning one or more tiles.
 
     Examples
     --------
@@ -224,9 +224,15 @@ class TotalPixelMatrix:
             np.floor((self._tile_positions[:, 0]) / self._rows),
             np.floor((self._tile_positions[:, 1]) / self._cols),
         ]).astype(int)
+        # Sort tile indices first along the row dimension from left to right
+        # and then along the column dimension from top to bottom. This allows
+        # for consistent indexing independent of the order in which tiles are
+        # stored in the pixel data element and facilitate iteration over tiles.
+        # Tiles are sorted row-wise according to the TILED_FULL dimension
+        # organization.
         tile_sort_index = np.lexsort([
+            self._tile_grid_positions[:, 1],
             self._tile_grid_positions[:, 0],
-            self._tile_grid_positions[:, 1]
         ])
         self._tile_grid_rows = int(np.max(self._tile_grid_positions[:, 0])) + 1
         self._tile_grid_cols = int(np.max(self._tile_grid_positions[:, 1])) + 1
@@ -425,7 +431,7 @@ class TotalPixelMatrix:
         the grid positions of individual tiles in the tile grid
 
         """
-        return self._tile_grid_positions
+        return self._tile_grid_positions.copy()
 
     def get_tile_grid_position(self, index: int) -> Tuple[int, int]:
         """Get position of a tile in the tile grid.
@@ -596,7 +602,11 @@ class TotalPixelMatrix:
 
     def _read_region(
         self,
-        key: Tuple[Union[slice, int], Union[slice, int], Union[slice, int]],
+        key: Tuple[
+            Union[slice, int, np.integer],
+            Union[slice, int, np.integer],
+            Union[slice, int, np.integer],
+        ],
     ) -> np.ndarray:
         """Read a continous region of pixels from one or more tiles.
 
@@ -619,9 +629,9 @@ class TotalPixelMatrix:
             raise ValueError('Encountered unexpected key.')
 
         # Rows
-        if isinstance(key[0], int):
-            row_start = key[0]
-            row_stop = key[0] + 1
+        if isinstance(key[0], (int, np.integer)):
+            row_start = int(key[0])
+            row_stop = row_start + 1
         elif isinstance(key[0], slice):
             if key[0].start is None:
                 row_start = 0
@@ -663,9 +673,9 @@ class TotalPixelMatrix:
             region_row_stop = None
 
         # Columns
-        if isinstance(key[1], int):
-            col_start = key[1]
-            col_stop = key[1] + 1
+        if isinstance(key[1], (int, np.integer)):
+            col_start = int(key[1])
+            col_stop = col_start + 1
         elif isinstance(key[1], slice):
             if key[1].start is None:
                 col_start = 0
@@ -882,7 +892,7 @@ class TotalPixelMatrix:
 
     def _read_tiles(
         self,
-        key: Union[int, Sequence[int], slice]
+        key: Union[slice, int, Sequence[int], np.integer, Sequence[np.integer]]
     ) -> np.ndarray:
         """Read individual tiles.
 
@@ -902,11 +912,11 @@ class TotalPixelMatrix:
 
         """
         indices = []
-        if isinstance(key, int):
-            indices.append(key)
+        if isinstance(key, (int, np.integer)):
+            indices.append(int(key))
         elif isinstance(key, Sequence):
-            if isinstance(key[0], int):
-                indices.extend([k for k in key])
+            if isinstance(key[0], (int, np.integer)):
+                indices.extend([int(k) for k in key])
             else:
                 raise TypeError('Wrong tile index.')
         elif isinstance(key, slice):
@@ -926,9 +936,15 @@ class TotalPixelMatrix:
     def __getitem__(
         self,
         key: Union[
-            Tuple[Union[slice, int], Union[slice, int], Union[slice, int]],
+            Tuple[
+                Union[slice, int, np.integer],
+                Union[slice, int, np.integer],
+                Union[slice, int, np.integer],
+            ],
             int,
+            np.integer,
             Sequence[int],
+            Sequence[np.integer],
             slice
         ]
     ) -> np.ndarray:
@@ -939,10 +955,11 @@ class TotalPixelMatrix:
         key: Union[Tuple[Union[slice, int], Union[slice, int], Union[slice, int]], int, Sequence[int], slice]]
             Index into the total pixel matrix. Individual integer values or a
             sequence of integer values are used to index into the underlying
-            flatten array of tiles (this may **not** be the order in which the
+            flattened array of tiles (this may **not** be the order in which the
             tiles are stored in the Pixel Data element). Slices of integer
             values are used to index into the two-dimensional total pixel
-            matrix using zero-based (row, column) coordinates.
+            matrix using zero-based (*row*, *column*) pixel index as well as the
+            zero-based *channel* index.
 
         Returns
         -------
@@ -951,11 +968,11 @@ class TotalPixelMatrix:
 
         """  # noqa: E501
         error_message = (
-            'Key must have type Tuple[Union[int, slice], ...], '
-            'int, Sequence[int], or slice.'
+            'Key must have type Tuple[Union[int, slice], Union[int, slice], '
+            'Union[int, slice]], int, Sequence[int], or slice.'
         )
         if isinstance(key, tuple):
-            if not isinstance(key[0], (int, slice)):
+            if not isinstance(key[0], (int, slice, np.integer)):
                 raise TypeError(error_message)
             if len(key) != 3:
                 raise ValueError(
@@ -966,10 +983,11 @@ class TotalPixelMatrix:
                 )
             return self._read_region(key)  # type: ignore
         else:
-            if not isinstance(key, (int, Sequence, slice)):
+            supported_types = (int, Sequence, slice, np.integer)
+            if not isinstance(key, supported_types):
                 raise TypeError(error_message)
             if isinstance(key, Sequence):
-                if not isinstance(key[0], int):
+                if not isinstance(key[0], (int, np.integer)):
                     raise TypeError(error_message)
             return self._read_tiles(key)
 
