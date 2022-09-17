@@ -545,28 +545,54 @@ class TotalPixelMatrix:
         self._current_index += 1
         return self[index]
 
-    def get_tile_index(self, position: Tuple[int, int]) -> int:
+    def get_tile_index(
+        self,
+        position: Optional[Tuple[int, int]] = None,
+        frame_number: Optional[int] = None,
+    ) -> int:
         """Get index of a tile.
 
         Parameters
         ----------
-        position: Tuple[int, int]
+        position: Union[Tuple[int, int], None], optional
             Zero-based (row, column) index of a tile in the tile grid
+        frame_number: Union[int, None], optional
+            One-base number of the corresponding frame item in the Pixel Data
+            element
 
         Returns
         -------
         int
             Zero-based index of the tile in the flattened total pixel matrix
 
+        Note
+        ----
+        Either `position` or `frame_number` must be provided.
+
         """
-        matches = np.logical_and(
-            self._tile_grid_positions[:, 0] == position[0],
-            self._tile_grid_positions[:, 1] == position[1]
-        )
-        try:
-            return int(np.where(matches)[0][0])
-        except IndexError:
-            raise IndexError(f'Could not find a tile at position {position}.')
+        if position is not None:
+            matches = np.logical_and(
+                self._tile_grid_positions[:, 0] == position[0],
+                self._tile_grid_positions[:, 1] == position[1]
+            )
+            try:
+                return int(np.where(matches)[0][0])
+            except IndexError:
+                raise IndexError(
+                    f'Could not find a tile at position {position}.'
+                )
+        elif frame_number is not None:
+            matches = self._sorted_frame_indices == (frame_number - 1)
+            try:
+                return int(np.where(matches)[0][0])
+            except IndexError:
+                raise IndexError(
+                    f'Could not find a tile for frame number {frame_number}.'
+                )
+        else:
+            raise TypeError(
+                'Argument "position" or "frame_number" must be provided.'
+            )
 
     def _read_region(
         self,
@@ -906,6 +932,24 @@ class TotalPixelMatrix:
             slice
         ]
     ) -> np.ndarray:
+        """Get region of interest.
+
+        Parameters
+        ----------
+        key: Union[Tuple[Union[slice, int], Union[slice, int], Union[slice, int]], int, Sequence[int], slice]]
+            Index into the total pixel matrix. Individual integer values or a
+            sequence of integer values are used to index into the underlying
+            flatten array of tiles (this may **not** be the order in which the
+            tiles are stored in the Pixel Data element). Slices of integer
+            values are used to index into the two-dimensional total pixel
+            matrix using zero-based (row, column) coordinates.
+
+        Returns
+        -------
+        numpy.ndarray
+            Region
+
+        """  # noqa: E501
         error_message = (
             'Key must have type Tuple[Union[int, slice], ...], '
             'int, Sequence[int], or slice.'
