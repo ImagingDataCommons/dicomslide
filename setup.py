@@ -23,6 +23,7 @@ setuptools.setup(
         'in DICOM format.'
     ),
     long_description=long_description,
+    long_description_content_type='text/markdown',
     author='Markus D. Herrmann',
     maintainer='Markus D. Herrmann',
     url='https://github.com/herrmannlab/dicomslide',
