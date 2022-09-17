@@ -1289,6 +1289,32 @@ def find_slides(
 
     lut = defaultdict(list)
     for study in study_search_results:
+        # These checks should not be necessary, because we are using these
+        # attributes to search for studies in the first place. However,
+        # some archives get this wrong. Safety first!
+        if study_instance_uid is not None:
+            if study.StudyInstanceUID != study_instance_uid:
+                logger.debug(
+                    f'skip study "{study.SOPInstanceUID}" because it '
+                    'does not match the Study Instance UID '
+                    f'"{study_instance_uid}"'
+                )
+                continue
+        if patient_id is not None:
+            if study.PatientID != patient_id:
+                logger.debug(
+                    f'skip study "{study.SOPInstanceUID}" because it '
+                    f'does not match the Patient ID "{patient_id}"'
+                )
+                continue
+        if study_id is not None:
+            if study.StudyID != study_id:
+                logger.debug(
+                    f'skip image "{study.SOPInstanceUID}" because it '
+                    f'does not match the Study ID "{study_id}"'
+                )
+                continue
+
         current_study_instance_uid = study.StudyInstanceUID
         instance_search_results = []
         # We could search by SOPClassUID directly, but some archives don't
@@ -1370,42 +1396,9 @@ def find_slides(
                 ),
                 bulk_data_uri_handler=bulk_data_uri_handler
             )
-            if specimen_stains is not None:
-                if instance.SOPClassUID == VLWholeSlideMicroscopyImageStorage:
-                    does_match = False
-                    for stain in specimen_stains:
-                        for item in metadata.SpecimenDescriptionSequence:
-                            does_match |= does_specimen_description_item_match(
-                                item=item,
-                                specimen_stain=stain
-                            )
-                    if not does_match:
-                        logger.debug(
-                            f'skip image "{metadata.SOPInstanceUID}" because '
-                            'its specimen description does not match any of '
-                            'the specified specimen stains'
-                        )
-                        continue
-            if optical_path_ids is not None:
-                if instance.SOPClassUID == VLWholeSlideMicroscopyImageStorage:
-                    does_match = False
-                    for identifier in optical_path_ids:
-                        for item in metadata.OpticalPathSequence:
-                            does_match |= does_optical_path_item_match(
-                                item=item,
-                                identifier=identifier
-                            )
-                    if not does_match:
-                        logger.debug(
-                            f'skip image "{metadata.SOPInstanceUID}" because '
-                            'its optical path does not match any of '
-                            'the specified optical path identitiers'
-                        )
-                        continue
-
-            # These checks should not be necessary, because we are using these
-            # attributes to search for studies in the first place. However,
-            # some archives get this wrong. Safety first!
+            # Once more, these checks should not be necessary, because we are
+            # using these attributes to search for studies in the first place.
+            # However, some archives get this wrong. Safety first!
             if study_instance_uid is not None:
                 if metadata.StudyInstanceUID != study_instance_uid:
                     logger.debug(
@@ -1454,6 +1447,40 @@ def find_slides(
                     'does not have a Frame of Reference UID attribute'
                 )
                 continue
+
+            if optical_path_ids is not None:
+                if instance.SOPClassUID == VLWholeSlideMicroscopyImageStorage:
+                    does_match = False
+                    for identifier in optical_path_ids:
+                        for item in metadata.OpticalPathSequence:
+                            does_match |= does_optical_path_item_match(
+                                item=item,
+                                identifier=identifier
+                            )
+                    if not does_match:
+                        logger.debug(
+                            f'skip image "{metadata.SOPInstanceUID}" because '
+                            'its optical path does not match any of '
+                            'the specified optical path identitiers'
+                        )
+                        continue
+
+            if specimen_stains is not None:
+                if instance.SOPClassUID == VLWholeSlideMicroscopyImageStorage:
+                    does_match = False
+                    for stain in specimen_stains:
+                        for item in metadata.SpecimenDescriptionSequence:
+                            does_match |= does_specimen_description_item_match(
+                                item=item,
+                                specimen_stain=stain
+                            )
+                    if not does_match:
+                        logger.debug(
+                            f'skip image "{metadata.SOPInstanceUID}" because '
+                            'its specimen description does not match any of '
+                            'the specified specimen stains'
+                        )
+                        continue
 
             logger.debug(
                 f'assign image "{metadata.SOPInstanceUID}" to slide with '
