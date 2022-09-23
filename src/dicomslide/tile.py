@@ -1,6 +1,6 @@
 import logging
 import itertools
-from typing import Sequence, Tuple, Union
+from typing import Optional, Sequence, Tuple, Union
 
 import highdicom as hd
 import numpy as np
@@ -188,25 +188,54 @@ def compute_frame_positions(
     }
     num_channels = len(channels)
 
+    def _get_channel_index(item: Dataset) -> float:
+        return float(channel_identifier_lut[get_channel_identifier(item)])
+
+    def _get_position_indices(item: Dataset) -> Tuple[
+        float, float, float, float, float
+    ]:
+        pos_item = item.PlanePositionSlideSequence[0]
+        return (
+            float(pos_item.RowPositionInTotalImagePixelMatrix) - 1.0,
+            float(pos_item.ColumnPositionInTotalImagePixelMatrix) - 1.0,
+            float(pos_item.XOffsetInSlideCoordinateSystem),
+            float(pos_item.YOffsetInSlideCoordinateSystem),
+            float(pos_item.ZOffsetInSlideCoordinateSystem),
+        )
+
     num_frames = int(getattr(image, 'NumberOfFrames', '1'))
     if hasattr(image, 'PerFrameFunctionalGroupsSequence'):
+        # The information may be stored in the item of the Shared Functional
+        # Groups Sequence in case it is shared across all frames.
+        if hasattr(image, 'SharedFunctionalGroupsSequence'):
+            shared_item = image.SharedFunctionalGroupsSequence[0]
+        else:
+            shared_item = Dataset()
+        channel_index: Optional[float] = None
+        if 'OpticalPathIdentificationSequence' in shared_item:
+            channel_index = _get_channel_index(shared_item)
+        position_indices: Optional[
+            Tuple[float, float, float, float, float]
+        ] = None
+        if 'PlanePositionSlideSequence' in shared_item:
+            position_indices = _get_position_indices(shared_item)
+        # Not pretty, but more performant than a for loop.
         positions = np.stack([
             np.array(
                 [
-                    float(
-                        channel_identifier_lut[
-                            get_channel_identifier(frame_item)
-                        ]
+                    (
+                        channel_index
+                        if channel_index is not None
+                        else _get_channel_index(frame_item)
                     ),
-                    float(pos_item.RowPositionInTotalImagePixelMatrix) - 1.0,
-                    float(pos_item.ColumnPositionInTotalImagePixelMatrix) - 1.0,
-                    float(pos_item.XOffsetInSlideCoordinateSystem),
-                    float(pos_item.YOffsetInSlideCoordinateSystem),
-                    float(pos_item.ZOffsetInSlideCoordinateSystem),
+                    *(
+                        position_indices
+                        if position_indices is not None
+                        else _get_position_indices(frame_item)
+                    )
                 ]
             )
             for frame_item in image.PerFrameFunctionalGroupsSequence
-            for pos_item in frame_item.PlanePositionSlideSequence
         ])
     else:
         image_origin = image.TotalPixelMatrixOriginSequence[0]
