@@ -5,6 +5,7 @@ from typing import Optional, Sequence, Tuple, Union
 import highdicom as hd
 import numpy as np
 from pydicom.dataset import Dataset
+from pydicom.tag import Tag
 
 from dicomslide._channel import _get_channel_info
 from dicomslide.utils import is_tiled_image
@@ -191,16 +192,25 @@ def compute_frame_positions(
     def _get_channel_index(item: Dataset) -> float:
         return float(channel_identifier_lut[get_channel_identifier(item)])
 
+    # Use tags via the lower-level pydicom API to avoid repeated tag lookup
+    # operations and speed up parsing of Per-Frame Functional Groups Sequence.
+    plane_pos_seq_tag = Tag('PlanePositionSlideSequence')
+    row_pos_tag = Tag('RowPositionInTotalImagePixelMatrix')
+    col_pos_tag = Tag('ColumnPositionInTotalImagePixelMatrix')
+    x_offset_tag = Tag('XOffsetInSlideCoordinateSystem')
+    y_offset_tag = Tag('YOffsetInSlideCoordinateSystem')
+    z_offset_tag = Tag('ZOffsetInSlideCoordinateSystem')
+
     def _get_position_indices(item: Dataset) -> Tuple[
         float, float, float, float, float
     ]:
-        pos_item = item.PlanePositionSlideSequence[0]
+        pos_item = item[plane_pos_seq_tag].value[0]
         return (
-            float(pos_item.RowPositionInTotalImagePixelMatrix) - 1.0,
-            float(pos_item.ColumnPositionInTotalImagePixelMatrix) - 1.0,
-            float(pos_item.XOffsetInSlideCoordinateSystem),
-            float(pos_item.YOffsetInSlideCoordinateSystem),
-            float(pos_item.ZOffsetInSlideCoordinateSystem),
+            float(pos_item[row_pos_tag].value) - 1.0,
+            float(pos_item[col_pos_tag].value) - 1.0,
+            float(pos_item[x_offset_tag].value),
+            float(pos_item[y_offset_tag].value),
+            float(pos_item[z_offset_tag].value),
         )
 
     num_frames = int(getattr(image, 'NumberOfFrames', '1'))
@@ -220,23 +230,46 @@ def compute_frame_positions(
         if 'PlanePositionSlideSequence' in shared_item:
             position_indices = _get_position_indices(shared_item)
         # Not pretty, but more performant than a for loop.
-        positions = np.stack([
-            np.array(
-                [
-                    (
-                        channel_index
-                        if channel_index is not None
-                        else _get_channel_index(frame_item)
-                    ),
-                    *(
-                        position_indices
-                        if position_indices is not None
-                        else _get_position_indices(frame_item)
-                    )
-                ]
-            )
-            for frame_item in image.PerFrameFunctionalGroupsSequence
-        ])
+        if channel_index is None and position_indices is None:
+            positions = np.stack([
+                np.array(
+                    [
+                        _get_channel_index(frame_item),
+                        *_get_position_indices(frame_item),
+                    ]
+                )
+                for frame_item in image.PerFrameFunctionalGroupsSequence
+            ])
+        elif channel_index is None and position_indices is not None:
+            positions = np.stack([
+                np.array(
+                    [
+                        _get_channel_index(frame_item),
+                        *position_indices,
+                    ]
+                )
+                for frame_item in image.PerFrameFunctionalGroupsSequence
+            ])
+        elif channel_index is not None and position_indices is None:
+            positions = np.stack([
+                np.array(
+                    [
+                        channel_index,
+                        *_get_position_indices(frame_item),
+                    ]
+                )
+                for frame_item in image.PerFrameFunctionalGroupsSequence
+            ])
+        else:
+            positions = np.stack([
+                np.array(
+                    [
+                        channel_index,
+                        *position_indices,
+                    ]
+                )
+                for frame_item in image.PerFrameFunctionalGroupsSequence
+            ])
     else:
         image_origin = image.TotalPixelMatrixOriginSequence[0]
         image_orientation = (
