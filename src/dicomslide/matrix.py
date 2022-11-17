@@ -33,8 +33,10 @@ def _determine_transfer_syntax(
 
     Parameters
     ----------
-    frame: bytes
+    frame_value: bytes
         Frame item of the Pixel Data element of an image
+    frame_number: int
+        One-based index position of the frame item in the Pixel Data element
     metadata: pydicom.Dataset
         Image metadata
 
