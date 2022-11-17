@@ -230,44 +230,36 @@ def compute_frame_positions(
         if 'PlanePositionSlideSequence' in shared_item:
             position_indices = _get_position_indices(shared_item)
         # Not pretty, but more performant than a for loop.
-        if channel_index is None and position_indices is None:
+        if channel_index is not None and position_indices is not None:
             positions = np.stack([
-                np.array(
-                    [
-                        _get_channel_index(frame_item),
-                        *_get_position_indices(frame_item),
-                    ]
-                )
+                np.array([
+                    channel_index,
+                    *position_indices,
+                ])
                 for frame_item in image.PerFrameFunctionalGroupsSequence
             ])
         elif channel_index is None and position_indices is not None:
             positions = np.stack([
-                np.array(
-                    [
-                        _get_channel_index(frame_item),
-                        *position_indices,
-                    ]
-                )
+                np.array([
+                    _get_channel_index(frame_item),
+                    *position_indices,
+                ])
                 for frame_item in image.PerFrameFunctionalGroupsSequence
             ])
         elif channel_index is not None and position_indices is None:
             positions = np.stack([
-                np.array(
-                    [
-                        channel_index,
-                        *_get_position_indices(frame_item),
-                    ]
-                )
+                np.array([
+                    channel_index,
+                    *_get_position_indices(frame_item),
+                ])
                 for frame_item in image.PerFrameFunctionalGroupsSequence
             ])
         else:
             positions = np.stack([
-                np.array(
-                    [
-                        channel_index,
-                        *position_indices,
-                    ]
-                )
+                np.array([
+                    _get_channel_index(frame_item),
+                    *_get_position_indices(frame_item),
+                ])
                 for frame_item in image.PerFrameFunctionalGroupsSequence
             ])
     else:
@@ -335,15 +327,9 @@ def compute_frame_positions(
         positions = np.stack([
             np.concatenate([
                 np.array([channel_index - 1], dtype=float),
-                np.array(
-                    [(r - 1) * rows, (c - 1) * columns],
-                    dtype=float
-                ),
+                np.array([(r - 1) * rows, (c - 1) * columns], dtype=float),
                 transformer_lut[slice_index](
-                    np.array(
-                        [[(c - 1) * columns, (r - 1) * rows]],
-                        dtype=int
-                    )
+                    np.array([[(c - 1) * columns, (r - 1) * rows]], dtype=int)
                 )[0]
             ])
             for channel_index, slice_index, r, c in itertools.product(
