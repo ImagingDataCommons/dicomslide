@@ -769,8 +769,8 @@ class TiledImage:
         row_index = np.min(pixel_indices[:, 0])
         col_index = np.min(pixel_indices[:, 1])
 
-        region_rows = int(np.ceil(size[1] / self._pixel_spacing[1]))
-        region_cols = int(np.ceil(size[0] / self._pixel_spacing[0]))
+        region_rows = int(np.ceil(size[0] / self._pixel_spacing[0]))
+        region_cols = int(np.ceil(size[1] / self._pixel_spacing[1]))
 
         # Region may extend beyond the image's total pixel matrix
         col_overhang = abs(min([col_index, 0]))

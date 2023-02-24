@@ -258,7 +258,7 @@ def test_color_images(client, dimension_organization_type):
                 channel_index=0,
                 focal_plane_index=0
             ),
-            np.ones((63, 32, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((32, 63, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
         np.testing.assert_array_equal(
             slide.get_slide_region(
@@ -268,7 +268,7 @@ def test_color_images(client, dimension_organization_type):
                 channel_index=0,
                 focal_plane_index=0
             ),
-            np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((8, 13, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
 
         np.testing.assert_array_equal(
@@ -292,7 +292,7 @@ def test_color_images(client, dimension_organization_type):
                 level=2,
                 channel_index=0
             ),
-            np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((8, 13, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
         np.testing.assert_array_equal(
             slide.get_slide_region_for_annotation(
@@ -316,7 +316,7 @@ def test_color_images(client, dimension_organization_type):
                 channel_index=0,
                 padding=(0.05, 0.01)
             ),
-            np.ones((38, 13, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((13, 38, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
         np.testing.assert_array_equal(
             slide.get_slide_region_for_annotation(
@@ -338,7 +338,7 @@ def test_color_images(client, dimension_organization_type):
                 level=3,
                 channel_index=0
             ),
-            np.ones((7, 4, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((4, 7, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
         with pytest.raises(ValueError):
             slide.get_slide_region_for_annotation(
@@ -525,7 +525,7 @@ def test_grayscale_images(client):
                         focal_plane_index=0
                     ),
                     np.zeros(
-                        (63, 32, expected_samples_per_pixel),
+                        (32, 63, expected_samples_per_pixel),
                         dtype=np.uint8
                     )
                 )
@@ -538,7 +538,7 @@ def test_grayscale_images(client):
                         focal_plane_index=1
                     ),
                     np.zeros(
-                        (13, 8, expected_samples_per_pixel),
+                        (8, 13, expected_samples_per_pixel),
                         dtype=np.uint8
                     )
                 )
