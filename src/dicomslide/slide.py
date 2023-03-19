@@ -1111,7 +1111,6 @@ class Slide:
                 'Argument "padding" must be either an integer or a tuple.'
             )
 
-        slide_coordinates: Tuple[float, float]
         size: Tuple[float, float]
         focal_plane_offset: float
         graphic_data = annotation.value

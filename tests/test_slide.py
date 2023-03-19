@@ -148,6 +148,7 @@ def generate_test_images(
                 lut[key].append(image)
     return lut
 
+
 @pytest.mark.parametrize(
     'dimension_organization_type',
     [
@@ -428,6 +429,9 @@ def test_color_images(client, dimension_organization_type, image_orientation):
     'image_orientation',
     [
         (0.0, 1.0, 0.0, 1.0, 0.0, 0.0),
+        (0.0, -1.0, 0.0, -1.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0, 0.0, -1.0, 0.0),
+        (-1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
     ]
 )
 def test_grayscale_images(client, image_orientation):
