@@ -225,13 +225,13 @@ def test_color_images(client, dimension_organization_type, image_orientation):
             for image in volume_images
         ]
         assert slide.size == expected_sizes[0]
-        assert set(
+        assert set([
             round(slide.physical_size[0], 3),
             round(slide.physical_size[1], 3),
-        ) == set(
+        ]) == set([
             round(float(volume_images[0].metadata.ImagedVolumeHeight), 3),
             round(float(volume_images[0].metadata.ImagedVolumeWidth), 3),
-        )
+        ])
         assert len(slide.label_images) == 1
         assert len(slide.overview_images) == 1
 
