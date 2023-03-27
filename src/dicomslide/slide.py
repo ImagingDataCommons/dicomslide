@@ -999,9 +999,9 @@ class Slide:
         The slide coordinate system is defined for the upright standing slide
         such that the X axis corresponds to the short side of the slide and the
         Y axis corresponds to the long side of the slide.
-        The rows of the returned pixel array are thus parallel to the X axis of
-        the slide coordinate system and the columns parallel to the Y axis of
-        the slide coordinate system.
+        The rows of the returned pixel array are parallel to the X axis of the
+        slide coordinate system and the columns parallel to the Y axis of the
+        slide coordinate system.
 
         """
         volume_images = self.get_volume_images(
@@ -1073,9 +1073,9 @@ class Slide:
         The slide coordinate system is defined for the upright standing slide
         such that the X axis corresponds to the short side of the slide and the
         Y axis corresponds to the long side of the slide.
-        The rows of the returned pixel array are thus parallel to the X axis of
-        the slide coordinate system and the columns parallel to the Y axis of
-        the slide coordinate system.
+        The rows of the returned pixel array are parallel to the X axis of the
+        slide coordinate system and the columns parallel to the Y axis of the
+        slide coordinate system.
 
         """  # noqa: E501
         full_padding: Tuple[float, float, float, float]
@@ -1111,7 +1111,6 @@ class Slide:
                 'Argument "padding" must be either an integer or a tuple.'
             )
 
-        slide_coordinates: Tuple[float, float]
         size: Tuple[float, float]
         focal_plane_offset: float
         graphic_data = annotation.value

@@ -303,7 +303,7 @@ class TiledImage:
         We want to align the image with the slide coordinate system such that
         the axes of the total pixel matrix are aligned with the X and Y axes
         of the slide coordinate system to ensure that spatial coordinates of
-        graphic region of interest (ROI) annotations and are aligned with the
+        graphic region of interest (ROI) annotations are aligned with the
         source image region.
 
         Returns
@@ -742,9 +742,9 @@ class TiledImage:
         The slide coordinate system is defined for the upright standing slide
         such that the X axis corresponds to the short side of the slide and the
         Y axis corresponds to the long side of the slide.
-        The rows of the returned pixel array are thus parallel to the X axis of
-        the slide coordinate system and the columns parallel to the Y axis of
-        the slide coordinate system.
+        The rows of the returned pixel array are parallel to the X axis of the
+        slide coordinate system and the columns parallel to the Y axis of the
+        slide coordinate system.
 
         """
         logger.debug(
@@ -769,8 +769,8 @@ class TiledImage:
         row_index = np.min(pixel_indices[:, 0])
         col_index = np.min(pixel_indices[:, 1])
 
-        region_rows = int(np.ceil(size[1] / self._pixel_spacing[1]))
-        region_cols = int(np.ceil(size[0] / self._pixel_spacing[0]))
+        region_rows = np.abs(np.max(pixel_indices[:, 0]) - row_index)
+        region_cols = np.abs(np.max(pixel_indices[:, 1]) - col_index)
 
         # Region may extend beyond the image's total pixel matrix
         col_overhang = abs(min([col_index, 0]))
@@ -783,7 +783,7 @@ class TiledImage:
             matrix.shape[1] - col_start - 1,
         ])
         col_stop = col_start + cols
-        region_col_start = col_overhang
+        region_col_start = int(col_overhang)
         region_col_stop = region_col_start + cols
 
         col_diff = (region_col_stop - region_col_start) - (col_stop - col_start)
@@ -803,7 +803,7 @@ class TiledImage:
             matrix.shape[0] - row_start - 1,
         ])
         row_stop = row_start + rows
-        region_row_start = row_overhang
+        region_row_start = int(row_overhang)
         region_row_stop = region_row_start + rows
 
         row_diff = (region_row_stop - region_row_start) - (row_stop - row_start)
