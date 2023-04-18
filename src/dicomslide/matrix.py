@@ -253,7 +253,8 @@ class TotalPixelMatrix:
         if self._metadata.SamplesPerPixel == 3 and correct_color:
             if (
                 hasattr(self._metadata, 'OpticalPathSequence') and
-                hasattr(self._metadata.OpticalPathSequence[0], 'ICCProfile')
+                hasattr(self._metadata.OpticalPathSequence[0], 'ICCProfile') and
+                self._metadata.OpticalPathSequence[0].ICCProfile is not None
             ):
                 icc_profile = self._metadata.OpticalPathSequence[0].ICCProfile
                 color_manager = hd.color.ColorManager(icc_profile)
