@@ -263,20 +263,16 @@ def compute_frame_positions(
                 for frame_item in image.PerFrameFunctionalGroupsSequence
             ])
     else:
+        msg = (
+            'Image lacks a PerFrameFunctionalGroupsSequence '
+            'but is not "TILED_FULL". Note that sometimes this '
+            'occurs due to limitations on the length of sequences '
+            'retrieved using WADO.'
+        )
         if not hasattr(image, 'DimensionOrganizationType'):
-            raise AttributeError(
-                'Image lacks a PerFrameFunctionalGroupsSequence '
-                'but is not "TILED_FULL". Note that sometimes this '
-                'occurs due to limitations on the length of sequences '
-                'retrieved using WADO.'
-            )
+            raise AttributeError(msg)
         elif image.DimensionOrganizationType != 'TILED_FULL':
-            raise AttributeError(
-                'Image lacks a PerFrameFunctionalGroupsSequence '
-                'but is not "TILED_FULL". Note that sometimes this '
-                'occurs due to limitations on the length of sequences '
-                'retrieved using WADO.'
-            )
+            raise AttributeError(msg)
 
         image_origin = image.TotalPixelMatrixOriginSequence[0]
         image_orientation = (
