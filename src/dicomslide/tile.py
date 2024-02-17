@@ -294,11 +294,6 @@ def compute_frame_positions(
             'TotalPixelMatrixFocalPlanes',
             1
         )
-        num_optical_paths = getattr(
-            image,
-            'NumberOfOpticalPaths',
-            len(image.OpticalPathSequence)
-        )
 
         shared_fg = image.SharedFunctionalGroupsSequence[0]
         pixel_measures = shared_fg.PixelMeasuresSequence[0]
@@ -344,7 +339,7 @@ def compute_frame_positions(
                 )[0]
             ])
             for channel_index, slice_index, r, c in itertools.product(
-                range(1, num_optical_paths + 1),
+                range(1, num_channels + 1),
                 range(1, num_focal_planes + 1),
                 range(1, tiles_per_column + 1),
                 range(1, tiles_per_row + 1),
