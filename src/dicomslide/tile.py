@@ -5,6 +5,7 @@ from typing import Optional, Sequence, Tuple, Union
 import highdicom as hd
 import numpy as np
 from pydicom.dataset import Dataset
+from pydicom.tag import Tag
 
 from dicomslide._channel import _get_channel_info
 from dicomslide.utils import is_tiled_image
@@ -191,16 +192,25 @@ def compute_frame_positions(
     def _get_channel_index(item: Dataset) -> float:
         return float(channel_identifier_lut[get_channel_identifier(item)])
 
+    # Use tags via the lower-level pydicom API to avoid repeated tag lookup
+    # operations and speed up parsing of Per-Frame Functional Groups Sequence.
+    plane_pos_seq_tag = Tag('PlanePositionSlideSequence')
+    row_pos_tag = Tag('RowPositionInTotalImagePixelMatrix')
+    col_pos_tag = Tag('ColumnPositionInTotalImagePixelMatrix')
+    x_offset_tag = Tag('XOffsetInSlideCoordinateSystem')
+    y_offset_tag = Tag('YOffsetInSlideCoordinateSystem')
+    z_offset_tag = Tag('ZOffsetInSlideCoordinateSystem')
+
     def _get_position_indices(item: Dataset) -> Tuple[
         float, float, float, float, float
     ]:
-        pos_item = item.PlanePositionSlideSequence[0]
+        pos_item = item[plane_pos_seq_tag].value[0]
         return (
-            float(pos_item.RowPositionInTotalImagePixelMatrix) - 1.0,
-            float(pos_item.ColumnPositionInTotalImagePixelMatrix) - 1.0,
-            float(pos_item.XOffsetInSlideCoordinateSystem),
-            float(pos_item.YOffsetInSlideCoordinateSystem),
-            float(pos_item.ZOffsetInSlideCoordinateSystem),
+            float(pos_item[row_pos_tag].value) - 1.0,
+            float(pos_item[col_pos_tag].value) - 1.0,
+            float(pos_item[x_offset_tag].value),
+            float(pos_item[y_offset_tag].value),
+            float(pos_item[z_offset_tag].value),
         )
 
     num_frames = int(getattr(image, 'NumberOfFrames', '1'))
@@ -220,24 +230,50 @@ def compute_frame_positions(
         if 'PlanePositionSlideSequence' in shared_item:
             position_indices = _get_position_indices(shared_item)
         # Not pretty, but more performant than a for loop.
-        positions = np.stack([
-            np.array(
-                [
-                    (
-                        channel_index
-                        if channel_index is not None
-                        else _get_channel_index(frame_item)
-                    ),
-                    *(
-                        position_indices
-                        if position_indices is not None
-                        else _get_position_indices(frame_item)
-                    )
-                ]
+        if channel_index is not None and position_indices is not None:
+            positions = np.tile(
+                np.array([
+                    channel_index,
+                    *position_indices,
+                ]),
+                (image.NumberOfFrames, 1)
             )
-            for frame_item in image.PerFrameFunctionalGroupsSequence
-        ])
+        elif channel_index is None and position_indices is not None:
+            positions = np.stack([
+                np.array([
+                    _get_channel_index(frame_item),
+                    *position_indices,
+                ])
+                for frame_item in image.PerFrameFunctionalGroupsSequence
+            ])
+        elif channel_index is not None and position_indices is None:
+            positions = np.stack([
+                np.array([
+                    channel_index,
+                    *_get_position_indices(frame_item),
+                ])
+                for frame_item in image.PerFrameFunctionalGroupsSequence
+            ])
+        else:
+            positions = np.stack([
+                np.array([
+                    _get_channel_index(frame_item),
+                    *_get_position_indices(frame_item),
+                ])
+                for frame_item in image.PerFrameFunctionalGroupsSequence
+            ])
     else:
+        msg = (
+            'Image lacks a PerFrameFunctionalGroupsSequence '
+            'but is not "TILED_FULL". Note that sometimes this '
+            'occurs due to limitations on the length of sequences '
+            'retrieved using WADO.'
+        )
+        if not hasattr(image, 'DimensionOrganizationType'):
+            raise AttributeError(msg)
+        elif image.DimensionOrganizationType != 'TILED_FULL':
+            raise AttributeError(msg)
+
         image_origin = image.TotalPixelMatrixOriginSequence[0]
         image_orientation = (
             float(image.ImageOrientationSlide[0]),
@@ -257,11 +293,6 @@ def compute_frame_positions(
             image,
             'TotalPixelMatrixFocalPlanes',
             1
-        )
-        num_optical_paths = getattr(
-            image,
-            'NumberOfOpticalPaths',
-            len(image.OpticalPathSequence)
         )
 
         shared_fg = image.SharedFunctionalGroupsSequence[0]
@@ -302,19 +333,13 @@ def compute_frame_positions(
         positions = np.stack([
             np.concatenate([
                 np.array([channel_index - 1], dtype=float),
-                np.array(
-                    [(r - 1) * rows, (c - 1) * columns],
-                    dtype=float
-                ),
+                np.array([(r - 1) * rows, (c - 1) * columns], dtype=float),
                 transformer_lut[slice_index](
-                    np.array(
-                        [[(c - 1) * columns, (r - 1) * rows]],
-                        dtype=int
-                    )
+                    np.array([[(c - 1) * columns, (r - 1) * rows]], dtype=int)
                 )[0]
             ])
             for channel_index, slice_index, r, c in itertools.product(
-                range(1, num_optical_paths + 1),
+                range(1, num_channels + 1),
                 range(1, num_focal_planes + 1),
                 range(1, tiles_per_column + 1),
                 range(1, tiles_per_row + 1),

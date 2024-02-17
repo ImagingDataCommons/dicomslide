@@ -42,7 +42,7 @@ def _get_channel_info(image: Dataset) -> Tuple[
         Information for each identified channel
     get_referenced_identifier: Callable[[pydicom.Dataset], str]
         Callable to determine the identifier for an individual frame, given
-        an item of either the Shared Functional Groups Sequence of the
+        an item of either the Shared Functional Groups Sequence or the
         Per-Frame Functional Groups Sequence.
 
     """
