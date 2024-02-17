@@ -398,7 +398,7 @@ class TotalPixelMatrix:
     @property
     def num_tiles(self) -> int:
         """int: Number of tiles"""
-        return int(np.product(self.tile_grid_shape))
+        return int(np.prod(self.tile_grid_shape))
 
     @property
     def tile_grid_shape(self) -> Tuple[int, int]:
@@ -411,7 +411,7 @@ class TotalPixelMatrix:
     @property
     def tile_size(self) -> int:
         """int: Size of an invidual tile (rows x columns x samples)"""
-        return int(np.product(self.tile_shape))
+        return int(np.prod(self.tile_shape))
 
     @property
     def tile_shape(self) -> Tuple[int, int, int]:
@@ -504,7 +504,7 @@ class TotalPixelMatrix:
     @property
     def size(self) -> int:
         """int: Size (rows x columns x samples)"""
-        return int(np.product(self.shape))
+        return int(np.prod(self.shape))
 
     @property
     def shape(self) -> Tuple[int, int, int]:
