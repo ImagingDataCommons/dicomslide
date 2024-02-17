@@ -54,7 +54,7 @@ class TiledImage:
     >>> print(image.metadata)  # pydicom.Dataset
     >>> print(image.metadata.BitsAllocated)
     >>> print(image.metadata.TotalPixelMatrixRows)
-    >>> pixel_matrix = image.get_tota_pixel_matrix(channel_index=0)
+    >>> pixel_matrix = image.get_total_pixel_matrix(channel_index=0)
     >>> print(pixel_matrix.dtype)
     >>> print(pixel_matrix.shape)
     >>> print(pixel_matrix[:1000, 350:750, :])  # numpy.ndarray
