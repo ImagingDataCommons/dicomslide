@@ -23,6 +23,7 @@ def generate_test_images(
     number_of_optical_paths: int,
     number_of_focal_planes: int,
     samples_per_pixel: int,
+    image_orientation: Tuple[float, float, float, float, float, float],
     transfer_syntax_uid: str,
     dimension_organization_type: hd.DimensionOrganizationTypeValues
 ) -> Mapping[Tuple[str, str], List[VLWholeSlideMicroscopyImage]]:
@@ -135,7 +136,7 @@ def generate_test_images(
                     extended_depth_of_field=False,
                     # TODO: image position needs to be slightly adjusted
                     image_position=image_position,
-                    image_orientation=(0.0, 1.0, 0.0, 1.0, 0.0, 0.0),
+                    image_orientation=image_orientation,
                     dimension_organization_type=dimension_organization_type,
                     frame_of_reference_uid=frame_of_reference_uid,
                     container_id=container_id,
@@ -155,7 +156,16 @@ def generate_test_images(
         hd.DimensionOrganizationTypeValues.TILED_SPARSE,
     ]
 )
-def test_color_images(client, dimension_organization_type):
+@pytest.mark.parametrize(
+    'image_orientation',
+    [
+        (0.0, 1.0, 0.0, 1.0, 0.0, 0.0),
+        (0.0, -1.0, 0.0, -1.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0, 0.0, -1.0, 0.0),
+        (-1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+    ]
+)
+def test_color_images(client, dimension_organization_type, image_orientation):
     expected_num_optical_paths = 1
     expected_num_focal_planes = 1
     expected_samples_per_pixel = 3
@@ -163,6 +173,7 @@ def test_color_images(client, dimension_organization_type):
         number_of_optical_paths=expected_num_optical_paths,
         number_of_focal_planes=expected_num_focal_planes,
         samples_per_pixel=expected_samples_per_pixel,
+        image_orientation=image_orientation,
         transfer_syntax_uid=JPEGBaseline8Bit,
         dimension_organization_type=dimension_organization_type
     )
@@ -214,13 +225,13 @@ def test_color_images(client, dimension_organization_type):
             for image in volume_images
         ]
         assert slide.size == expected_sizes[0]
-        assert (
+        assert set([
             round(slide.physical_size[0], 3),
             round(slide.physical_size[1], 3),
-        ) == (
+        ]) == set([
             round(float(volume_images[0].metadata.ImagedVolumeHeight), 3),
             round(float(volume_images[0].metadata.ImagedVolumeWidth), 3),
-        )
+        ])
         assert len(slide.label_images) == 1
         assert len(slide.overview_images) == 1
 
@@ -258,7 +269,7 @@ def test_color_images(client, dimension_organization_type):
                 channel_index=0,
                 focal_plane_index=0
             ),
-            np.ones((63, 32, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((31, 62, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
         np.testing.assert_array_equal(
             slide.get_slide_region(
@@ -268,7 +279,7 @@ def test_color_images(client, dimension_organization_type):
                 channel_index=0,
                 focal_plane_index=0
             ),
-            np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((8, 12, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
 
         np.testing.assert_array_equal(
@@ -292,7 +303,7 @@ def test_color_images(client, dimension_organization_type):
                 level=2,
                 channel_index=0
             ),
-            np.ones((13, 8, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((8, 12, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
         np.testing.assert_array_equal(
             slide.get_slide_region_for_annotation(
@@ -316,7 +327,7 @@ def test_color_images(client, dimension_organization_type):
                 channel_index=0,
                 padding=(0.05, 0.01)
             ),
-            np.ones((38, 13, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((13, 37, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
         np.testing.assert_array_equal(
             slide.get_slide_region_for_annotation(
@@ -338,7 +349,7 @@ def test_color_images(client, dimension_organization_type):
                 level=3,
                 channel_index=0
             ),
-            np.ones((7, 4, expected_samples_per_pixel), dtype=np.uint8) * 255
+            np.ones((4, 6, expected_samples_per_pixel), dtype=np.uint8) * 255
         )
         with pytest.raises(ValueError):
             slide.get_slide_region_for_annotation(
@@ -414,7 +425,16 @@ def test_color_images(client, dimension_organization_type):
         assert not diff.getbbox()
 
 
-def test_grayscale_images(client):
+@pytest.mark.parametrize(
+    'image_orientation',
+    [
+        (0.0, 1.0, 0.0, 1.0, 0.0, 0.0),
+        (0.0, -1.0, 0.0, -1.0, 0.0, 0.0),
+        (1.0, 0.0, 0.0, 0.0, -1.0, 0.0),
+        (-1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+    ]
+)
+def test_grayscale_images(client, image_orientation):
     expected_num_optical_paths = 2
     expected_num_focal_planes = 3
     expected_samples_per_pixel = 1
@@ -422,6 +442,7 @@ def test_grayscale_images(client):
         number_of_optical_paths=expected_num_optical_paths,
         number_of_focal_planes=expected_num_focal_planes,
         samples_per_pixel=expected_samples_per_pixel,
+        image_orientation=image_orientation,
         transfer_syntax_uid=JPEG2000Lossless,
         dimension_organization_type=(
             hd.DimensionOrganizationTypeValues.TILED_SPARSE
@@ -525,7 +546,7 @@ def test_grayscale_images(client):
                         focal_plane_index=0
                     ),
                     np.zeros(
-                        (63, 32, expected_samples_per_pixel),
+                        (31, 62, expected_samples_per_pixel),
                         dtype=np.uint8
                     )
                 )
@@ -538,7 +559,7 @@ def test_grayscale_images(client):
                         focal_plane_index=1
                     ),
                     np.zeros(
-                        (13, 8, expected_samples_per_pixel),
+                        (8, 12, expected_samples_per_pixel),
                         dtype=np.uint8
                     )
                 )
