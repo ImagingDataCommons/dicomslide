@@ -231,13 +231,13 @@ def compute_frame_positions(
             position_indices = _get_position_indices(shared_item)
         # Not pretty, but more performant than a for loop.
         if channel_index is not None and position_indices is not None:
-            positions = np.stack([
+            positions = np.tile(
                 np.array([
                     channel_index,
                     *position_indices,
-                ])
-                for frame_item in image.PerFrameFunctionalGroupsSequence
-            ])
+                ]),
+                (image.NumberOfFrames, 1)
+            )
         elif channel_index is None and position_indices is not None:
             positions = np.stack([
                 np.array([
@@ -263,6 +263,21 @@ def compute_frame_positions(
                 for frame_item in image.PerFrameFunctionalGroupsSequence
             ])
     else:
+        if not hasattr(image, 'DimensionOrganizationType'):
+            raise AttributeError(
+                'Image lacks a PerFrameFunctionalGroupsSequence '
+                'but is not "TILED_FULL". Note that sometimes this '
+                'occurs due to limitations on the length of sequences '
+                'retrieved using WADO.'
+            )
+        elif image.DimensionOrganizationType != 'TILED_FULL':
+            raise AttributeError(
+                'Image lacks a PerFrameFunctionalGroupsSequence '
+                'but is not "TILED_FULL". Note that sometimes this '
+                'occurs due to limitations on the length of sequences '
+                'retrieved using WADO.'
+            )
+
         image_origin = image.TotalPixelMatrixOriginSequence[0]
         image_orientation = (
             float(image.ImageOrientationSlide[0]),
