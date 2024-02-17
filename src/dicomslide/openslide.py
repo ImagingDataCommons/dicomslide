@@ -279,7 +279,14 @@ class OpenSlide:
         )
         thumb = PillowImage.new('RGB', tile.size, background_color)
         thumb.paste(tile, None, tile)
-        thumb.thumbnail(size, PillowImage.ANTIALIAS)
+        try:
+            resamping_method = PillowImage.Resampling.LANCZOS
+        except AttributeError:
+            # May be using a version of Pillow before 10.0.0, especially if
+            # using an older version of Python
+            resamping_method = PillowImage.ANTIALIAS
+
+        thumb.thumbnail(size, resamping_method)
         return thumb
 
     def __enter__(self):
