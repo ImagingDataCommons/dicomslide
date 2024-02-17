@@ -280,7 +280,7 @@ class OpenSlide:
         thumb = PillowImage.new('RGB', tile.size, background_color)
         thumb.paste(tile, None, tile)
         try:
-            resamping_method = PillowImage.Resampling.LANCZOS
+            resamping_method = PillowImage.Resampling.LANCZOS  # type: ignore
         except AttributeError:
             # May be using a version of Pillow before 10.0.0, especially if
             # using an older version of Python
