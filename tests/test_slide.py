@@ -165,7 +165,16 @@ def generate_test_images(
         (-1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
     ]
 )
-def test_color_images(client, dimension_organization_type, image_orientation):
+@pytest.mark.parametrize(
+    'lazy_frame_retrieval',
+    [True, False],
+)
+def test_color_images(
+    client,
+    dimension_organization_type,
+    image_orientation,
+    lazy_frame_retrieval,
+):
     expected_num_optical_paths = 1
     expected_num_focal_planes = 1
     expected_samples_per_pixel = 3
@@ -183,27 +192,34 @@ def test_color_images(client, dimension_organization_type, image_orientation):
 
     found_slides = find_slides(
         client,
-        study_instance_uid=datasets[0].StudyInstanceUID
+        study_instance_uid=datasets[0].StudyInstanceUID,
+        lazy_frame_retrieval=lazy_frame_retrieval,
     )
     assert len(found_slides) == 2
     found_slides = find_slides(
         client,
-        study_instance_uid='1.2.3.4'
+        study_instance_uid='1.2.3.4',
+        lazy_frame_retrieval=lazy_frame_retrieval,
     )
     assert len(found_slides) == 0
 
     found_slides = find_slides(
         client,
-        container_id=datasets[0].ContainerIdentifier
+        container_id=datasets[0].ContainerIdentifier,
+        lazy_frame_retrieval=lazy_frame_retrieval,
     )
     assert len(found_slides) == 1
     found_slides = find_slides(
         client,
-        container_id='foo'
+        container_id='foo',
+        lazy_frame_retrieval=lazy_frame_retrieval,
     )
     assert len(found_slides) == 0
 
-    found_slides = find_slides(client)
+    found_slides = find_slides(
+        client,
+        lazy_frame_retrieval=lazy_frame_retrieval,
+    )
     assert len(found_slides) == len(groups)
 
     expected_num_levels = 4
@@ -434,7 +450,15 @@ def test_color_images(client, dimension_organization_type, image_orientation):
         (-1.0, 0.0, 0.0, 0.0, 1.0, 0.0),
     ]
 )
-def test_grayscale_images(client, image_orientation):
+@pytest.mark.parametrize(
+    'lazy_frame_retrieval',
+    [True, False],
+)
+def test_grayscale_images(
+    client,
+    image_orientation,
+    lazy_frame_retrieval,
+):
     expected_num_optical_paths = 2
     expected_num_focal_planes = 3
     expected_samples_per_pixel = 1
@@ -456,7 +480,8 @@ def test_grayscale_images(client, image_orientation):
 
     found_slides = find_slides(
         client,
-        study_instance_uid=group_keys[0][0]
+        study_instance_uid=group_keys[0][0],
+        lazy_frame_retrieval=lazy_frame_retrieval,
     )
     assert len(found_slides) == 2
     assert found_slides[0].num_channels == expected_num_optical_paths
@@ -464,7 +489,8 @@ def test_grayscale_images(client, image_orientation):
     found_slides = find_slides(
         client,
         study_instance_uid=group_keys[0][0],
-        container_id=group_keys[0][1]
+        container_id=group_keys[0][1],
+        lazy_frame_retrieval=lazy_frame_retrieval,
     )
     assert len(found_slides) == 1
     assert found_slides[0].num_channels == expected_num_optical_paths
@@ -472,11 +498,15 @@ def test_grayscale_images(client, image_orientation):
     found_slides = find_slides(
         client,
         study_instance_uid=group_keys[0][0],
-        container_id=group_keys[2][1]
+        container_id=group_keys[2][1],
+        lazy_frame_retrieval=lazy_frame_retrieval,
     )
     assert len(found_slides) == 0
 
-    found_slides = find_slides(client)
+    found_slides = find_slides(
+        client,
+        lazy_frame_retrieval=lazy_frame_retrieval,
+    )
     assert len(found_slides) == len(groups)
     for i in range(len(groups)):
         assert found_slides[i].num_channels == expected_num_optical_paths

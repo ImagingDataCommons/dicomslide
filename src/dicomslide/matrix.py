@@ -15,6 +15,7 @@ import numpy as np
 from dicomweb_client import DICOMClient
 from pydicom.dataset import Dataset
 from pydicom.uid import UID
+from pydicom.filebase import DicomBytesIO
 from dicomslide.tile import (
     assemble_total_pixel_matrix,
     compute_frame_positions,
@@ -337,22 +338,36 @@ class TotalPixelMatrix:
 
         if len(selected_frame_numbers) > 0:
             logger.debug(f'retrieve frames {selected_frame_numbers}')
-            frames = self._client.retrieve_instance_frames(
-                study_instance_uid=self._metadata.StudyInstanceUID,
-                series_instance_uid=self._metadata.SeriesInstanceUID,
-                sop_instance_uid=self._metadata.SOPInstanceUID,
-                frame_numbers=selected_frame_numbers,
-                media_types=(
-                    ("application/octet-stream", "*"),
-                    ("image/jpeg", "1.2.840.10008.1.2.4.50"),
-                    ("image/jls", "1.2.840.10008.1.2.4.80"),
-                    ("image/jls", "1.2.840.10008.1.2.4.81"),
-                    ("image/jp2", "1.2.840.10008.1.2.4.90"),
-                    ("image/jp2", "1.2.840.10008.1.2.4.91"),
-                    ("image/jpx", "1.2.840.10008.1.2.4.92"),
-                    ("image/jpx", "1.2.840.10008.1.2.4.93"),
+            if hasattr(self._metadata, 'PixelData'):
+                # The instance was retrieved with pixel data so just
+                # use that
+                frames = []
+                with DicomBytesIO() as buf:
+                    self._metadata.save_as(buf)
+                    buf.seek(0)
+                    with hd.io.ImageFileReader(buf) as reader:
+                        for f in selected_frame_numbers:
+                            frames.append(
+                                reader.read_frame_raw(f - 1)
+                            )
+            else:
+                # Retrieve over network using client
+                frames = self._client.retrieve_instance_frames(
+                    study_instance_uid=self._metadata.StudyInstanceUID,
+                    series_instance_uid=self._metadata.SeriesInstanceUID,
+                    sop_instance_uid=self._metadata.SOPInstanceUID,
+                    frame_numbers=selected_frame_numbers,
+                    media_types=(
+                        ("application/octet-stream", "*"),
+                        ("image/jpeg", "1.2.840.10008.1.2.4.50"),
+                        ("image/jls", "1.2.840.10008.1.2.4.80"),
+                        ("image/jls", "1.2.840.10008.1.2.4.81"),
+                        ("image/jp2", "1.2.840.10008.1.2.4.90"),
+                        ("image/jp2", "1.2.840.10008.1.2.4.91"),
+                        ("image/jpx", "1.2.840.10008.1.2.4.92"),
+                        ("image/jpx", "1.2.840.10008.1.2.4.93"),
+                    )
                 )
-            )
             # Decode and cache retrieved frames
             for i, number in enumerate(selected_frame_numbers):
                 frame_item = frames[i]

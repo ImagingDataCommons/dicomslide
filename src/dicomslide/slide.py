@@ -1205,7 +1205,8 @@ def find_slides(
     fail_on_error: bool = True,
     include_derived: bool = True,
     specimen_stains: Optional[Sequence[Union[Code, hd.sr.CodedConcept]]] = None,
-    optical_path_ids: Optional[Sequence[str]] = None
+    optical_path_ids: Optional[Sequence[str]] = None,
+    lazy_frame_retrieval: bool = True,
 ) -> List[Slide]:
     """Find slides.
 
@@ -1234,14 +1235,24 @@ def find_slides(
     include_derived: bool, optional
         Whether derived images (DICOM Segmentation or DICOM Parametric Map
         instances) should be considered and included into slides
-    specimen_stains: Union[Sequence[Union[pydicom.sr.Code, highdicom.sr.CodedConcept]], None]
+    specimen_stains: Union[Sequence[Union[pydicom.sr.Code, highdicom.sr.CodedConcept]], None], optional
         Specimen stains for which corresponding slide microscopy images should
         be included in slides. Any image that does not contain one of the
         stains in the speciment description will be omitted.
-    optical_path_ids: Union[Sequence[str], None]
+    optical_path_ids: Union[Sequence[str], None], optional
         Identifiers of optical paths for which corresponding slide microscopy
         images should be included in slides. Any image that does not contain
         any of the specified optical paths will be omitted.
+    lazy_frame_retrieval: bool, optional
+        Lazily retrieve frames. This is the default and recommended way to use
+        dicomslide. This function retrieves only image metadata and not pixel
+        from the archive. Pixels are retrieved later when required by a
+        subsequent operation. However, in some situations, you may wish to
+        disable this behavior. This could be if you know in advance that you
+        will require all pixels and/or will make repeated requests. Another
+        reason may be that your archive does not behave well with
+        metadata-only retrieval requests (some archives have been found to fail
+        to pull large nested sequences).
 
     Returns
     -------
@@ -1387,14 +1398,21 @@ def find_slides(
                 'retrieve metadata for '
                 f'image instance "{instance.SOPInstanceUID}"'
             )
-            metadata = Dataset.from_json(
-                client.retrieve_instance_metadata(
+            if lazy_frame_retrieval:
+                metadata = Dataset.from_json(
+                    client.retrieve_instance_metadata(
+                        study_instance_uid=current_study_instance_uid,
+                        series_instance_uid=instance.SeriesInstanceUID,
+                        sop_instance_uid=instance.SOPInstanceUID,
+                    ),
+                    bulk_data_uri_handler=bulk_data_uri_handler
+                )
+            else:
+                metadata = client.retrieve_instance(
                     study_instance_uid=current_study_instance_uid,
                     series_instance_uid=instance.SeriesInstanceUID,
                     sop_instance_uid=instance.SOPInstanceUID,
-                ),
-                bulk_data_uri_handler=bulk_data_uri_handler
-            )
+                )
             # Once more, these checks should not be necessary, because we are
             # using these attributes to search for studies in the first place.
             # However, some archives get this wrong. Safety first!
