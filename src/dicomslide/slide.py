@@ -1398,7 +1398,9 @@ def find_slides(
                 'retrieve metadata for '
                 f'image instance "{instance.SOPInstanceUID}"'
             )
-            if lazy_frame_retrieval:
+            if lazy_frame_retrieval and instance.Modality != 'SEG':
+                # HACK the modality check is a shamless hack that should never
+                # be merged
                 metadata = Dataset.from_json(
                     client.retrieve_instance_metadata(
                         study_instance_uid=current_study_instance_uid,
